@@ -1,0 +1,54 @@
+/* Controller illustration (see controller-art.ts).
+   The original colours of Sony's artwork are left untouched: only --accent (pressure) and
+   --led (light bar) come from the page. */
+
+.art-wrap { width: 100%; }
+
+.art {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 16px 20px rgba(0, 0, 0, 0.32));
+}
+
+/* Face buttons and D-pad: the background and the symbol light up together */
+.art .btn-fill,
+.art .btn-glyph,
+.art .socket {
+  transition: fill 0.06s;
+}
+.art .btn-fill.on { fill: var(--accent, #5b8cff); }
+.art .btn-glyph.on { fill: #ffffff; }
+.art .socket.on { fill: var(--accent, #5b8cff); }
+
+/* L2 / R2 triggers: they fold onto their hinge (see TRIGGER_FOLD) and take a tint according to the pressure */
+.art .trigger-cap { transition: transform 0.05s linear; }
+.art .trigger-fill {
+  fill: var(--accent, #5b8cff);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.05s linear;
+}
+
+
+/* Stick caps: they follow the stick (see STICK_TRAVEL_*); the dish moves slightly more than they do */
+.art .stick,
+.art .dish { transition: transform 0.05s linear; }
+
+/* Highlights added on parts without a shape of their own (create, options, mic, PS, L1/R1, touchpad, stick clicks) */
+.art .hl {
+  fill: var(--accent, #5b8cff);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.06s;
+}
+.art .hl.on { opacity: 0.9; }
+.art .hl[data-part="13"].on { opacity: 0.5; }
+.art .hl[data-part="12"].on,
+.art .hl[data-part="4"].on,
+.art .hl[data-part="5"].on,
+.art .hl[data-part="6"].on,
+.art .hl[data-part="7"].on,
+.art .hl[data-part="10"].on,
+.art .hl[data-part="11"].on { opacity: 0.38; }

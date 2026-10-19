@@ -1,0 +1,106 @@
+/* Overlay: same visual language as the app (dark surfaces, blue accent, controller illustration). */
+:root {
+  --surface: rgba(17, 20, 28, 0.94);
+  --surface-2: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.09);
+  --text: #eef1f8;
+  --muted: #98a1b5;
+  --ok: #3ecf8e;
+  --bad: #ff6b6b;
+  --accent: #5b8cff;
+  color-scheme: dark;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+/* The window is transparent: only the card is visible. */
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.card {
+  margin: 10px;
+  padding: 16px;
+  border-radius: 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  animation: pop 0.16s ease-out;
+}
+
+@keyframes pop {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.message {
+  margin: 2px 4px 14px;
+  font-size: 1.12rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item {
+  --led: var(--accent);
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px 12px 12px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+}
+
+/* The controller that triggered the overlay is highlighted in its own colour. */
+.item.source {
+  background: color-mix(in srgb, var(--led) 12%, transparent);
+  border-color: color-mix(in srgb, var(--led) 55%, transparent);
+  box-shadow: 0 0 22px -6px var(--led);
+}
+
+.thumb { width: 112px; }
+
+.info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.name {
+  overflow: hidden;
+  font-size: 1.12rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.level {
+  flex: none;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.level.low { color: var(--bad); }
+.mode { font-size: 0.8rem; color: var(--muted); }
+
+/* Gauge with 10 segments (battery.ts): it takes the full width under the name. */
+.info .gauge {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.info .gauge i {
+  flex: 1;
+  width: auto;
+  height: 10px;
+}

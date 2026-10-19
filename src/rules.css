@@ -1,0 +1,177 @@
+/* Rule editor (see rules-ui.ts). Relies on the design tokens of styles.css. */
+
+/* A card must never widen because of the (non-wrapping) title of a collapsed rule. */
+.grid > .card { min-width: 0; }
+
+.intro { margin: -6px 0 16px; max-width: 72ch; line-height: 1.55; }
+.intro b { color: var(--text); font-weight: 650; }
+.rules-actions { margin-top: 16px; }
+.empty-rules { margin: 4px 2px; font-size: 0.84rem; color: var(--muted); }
+
+.rules, .analogs { display: flex; flex-direction: column; gap: 10px; }
+
+/* --- A rule ---------------------------------------------------------------------------------- */
+.rule, .analog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: border-color 0.12s, opacity 0.12s;
+}
+.rule.open { border-color: var(--border-strong); }
+.rule.incomplete { border-color: color-mix(in srgb, var(--bad) 55%, var(--border)); }
+.rule.off, .analog.off { opacity: 0.55; }
+
+.rule-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-sm);
+}
+.rule-head:hover { background: color-mix(in srgb, var(--surface-3) 40%, transparent); }
+.rule-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+.rule.incomplete .rule-title { color: var(--bad); }
+
+.chevron {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.rule.open .chevron { transform: rotate(90deg); }
+
+.rule-switch { flex: none; margin: 0; }
+.rule-switch.switch { gap: 0; }
+
+.badge {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.rule-tools { flex: none; display: inline-flex; gap: 2px; }
+.icon-btn {
+  min-width: 30px;
+  padding: 5px 7px;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1;
+}
+.icon-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.icon-btn.danger:hover:not(:disabled) { color: var(--bad); }
+
+.rule-body {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 16px 16px;
+  border-top: 1px solid var(--border);
+}
+.rule.open .rule-body { display: flex; }
+
+.rule-part h4 {
+  margin: 14px 0 9px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rule-part .hint { margin-top: 8px; }
+
+/* --- Fields ------------------------------------------------------------------------------------ */
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 20px; }
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field-label { font-size: 0.76rem; color: var(--muted); }
+.output { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.output select { max-width: 100%; }
+
+input.text,
+.num input {
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.86rem;
+  transition: border-color 0.12s;
+}
+input.text { min-width: 160px; flex: 1; }
+.field > input.text { flex: none; }
+input.text:focus, .num input:focus { outline: none; border-color: var(--accent); }
+.num { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted); }
+.num input { width: 84px; }
+
+input.color {
+  width: 46px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+/* --- Inputs (chips) ------------------------------------------------------------------------------ */
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px 3px 11px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.chip-x { min-width: 0; padding: 3px 5px; color: var(--muted); }
+.chip-add { color: var(--muted); }
+
+/* --- Steps ----------------------------------------------------------------------------------------- */
+.steps { display: flex; flex-direction: column; gap: 8px; }
+.step {
+  display: grid;
+  grid-template-columns: 22px minmax(150px, 210px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.step-n { text-align: center; font-size: 0.75rem; font-weight: 650; color: var(--muted); }
+.step-params { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.step-params .field { flex-direction: row; align-items: center; gap: 8px; }
+.add-step { margin-top: 10px; color: var(--muted); }
+
+@media (max-width: 760px) {
+  .step { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .step > .rule-tools { grid-column: 3; grid-row: 1; }
+  .step-params { grid-column: 2 / -1; grid-row: 2; }
+}
+
+/* --- Options ----------------------------------------------------------------------------------------- */
+.options { display: flex; flex-direction: column; gap: 10px; }
+.options .switch + .switch { margin-top: 0; }
+
+/* --- Analog bindings ----------------------------------------------------------------------------------- */
+.analog { padding: 12px 14px; }
+.analog-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.analog-top > :last-child { margin-left: auto; }
+.analog-details { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.keys-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; }

@@ -1,0 +1,34 @@
+/* Battery gauge with 10 segments (see battery.ts). Uses the colours of the page that imports it. */
+.gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.gauge i {
+  width: 7px;
+  height: 15px;
+  border-radius: 2px;
+  background: rgba(127, 127, 127, 0.28);
+}
+
+.gauge i.on {
+  background: var(--ok);
+}
+
+/* The segment of the current band: hatched, because the exact value is unknown. */
+.gauge i.partial {
+  background:
+    repeating-linear-gradient(135deg, var(--ok) 0 2px, transparent 2px 4px),
+    rgba(127, 127, 127, 0.28);
+}
+
+.gauge.low i.on {
+  background: var(--bad);
+}
+
+.gauge.low i.partial {
+  background:
+    repeating-linear-gradient(135deg, var(--bad) 0 2px, transparent 2px 4px),
+    rgba(127, 127, 127, 0.28);
+}

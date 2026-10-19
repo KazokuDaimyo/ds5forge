@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DS5Forge</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <!-- Custom title bar: the window has no native Windows frame -->
+    <header class="titlebar" data-tauri-drag-region>
+      <div class="title-brand" data-tauri-drag-region>
+        <span class="brand-mark" aria-hidden="true" data-icon="gamepad" data-icon-size="14"></span>
+        <span class="title-text">DS5Forge</span>
+      </div>
+      <div class="title-controls">
+        <button type="button" class="title-btn" id="win-min" data-i18n-attr="aria-label:window.minimize; title:window.minimize"></button>
+        <button type="button" class="title-btn" id="win-max"></button>
+        <button type="button" class="title-btn close" id="win-close" data-i18n-attr="aria-label:window.close; title:window.closeHint"></button>
+      </div>
+    </header>
+
+    <div class="shell">
+      <!-- Sidebar: the controllers, then the global pages -->
+      <aside class="sidebar">
+        <div class="side-section">
+          <p class="side-label" data-i18n="sidebar.controllers"></p>
+          <nav id="tabs" class="side-controllers" data-i18n-attr="aria-label:sidebar.controllers"></nav>
+        </div>
+
+        <nav class="side-nav" data-i18n-attr="aria-label:sidebar.application">
+          <button type="button" class="nav-item" data-nav="settings" data-icon="settings"><span data-i18n="nav.settings"></span></button>
+          <button type="button" class="nav-item" data-nav="diagnostic" data-icon="pulse"><span data-i18n="nav.diagnostics"></span></button>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <section id="empty" class="card empty">
+          <p class="empty-title" data-i18n="empty.title"></p>
+          <p class="hint" data-i18n="empty.hint"></p>
+        </section>
+
+        <div id="controller-view" hidden>
+          <header class="card controller-head">
+            <div class="head-top">
+              <input id="name" class="name" maxlength="32" data-i18n-attr="aria-label:head.name" />
+              <div class="pills">
+                <span id="battery" class="status battery off"><span id="battery-gauge"></span><span id="battery-text"></span></span>
+                <span id="status" class="status off"></span>
+              </div>
+            </div>
+            <div class="head-bottom">
+              <button id="power-off" type="button" class="danger" data-icon="power" data-icon-size="16"><span data-i18n="head.powerOff"></span></button>
+              <span id="power-msg" class="hint"></span>
+              <p class="hint id-line"><span data-i18n="head.id"></span> <code id="ctrl-id"></code></p>
+            </div>
+          </header>
+
+          <nav class="section-tabs" data-i18n-attr="aria-label:head.sections">
+            <button type="button" class="section-tab" data-nav="overview" data-icon="gamepad"><span data-i18n="tab.overview"></span></button>
+            <button type="button" class="section-tab" data-nav="controls" data-icon="sliders"><span data-i18n="tab.controls"></span></button>
+            <button type="button" class="section-tab" data-nav="rules" data-icon="rules"><span data-i18n="tab.rules"></span></button>
+            <button type="button" class="section-tab" data-nav="triggers" data-icon="bolt"><span data-i18n="tab.triggers"></span></button>
+            <button type="button" class="section-tab" data-nav="lighting" data-icon="bulb"><span data-i18n="tab.lighting"></span></button>
+            <button type="button" class="section-tab" data-nav="motion" data-icon="motion"><span data-i18n="tab.motion"></span></button>
+          </nav>
+
+          <!-- Overview -->
+          <section class="view" data-view="overview">
+            <div class="grid">
+              <section class="card span-2 hero">
+                <div id="controller-art"></div>
+                <p class="hint hero-hint" data-i18n="overview.hint"></p>
+              </section>
+
+              <section class="card span-2">
+                <h2 data-i18n="pad.title"></h2>
+                <label class="switch">
+                  <input id="virtual-pad" type="checkbox" />
+                  <span data-i18n="pad.switch"></span>
+                </label>
+                <p id="virtual-pad-msg" class="hint" data-i18n="pad.hint"></p>
+              </section>
+            </div>
+          </section>
+
+          <!-- Controls -->
+          <section class="view" data-view="controls" hidden>
+            <div class="grid">
+              <section class="card span-2">
+                <h2 data-i18n="controls.sticks"></h2>
+                <div id="sticks-config" class="trigger-cols"></div>
+                <div class="row">
+                  <button id="input-reset-sticks" type="button" data-i18n="controls.resetSticks"></button>
+                </div>
+                <p class="hint" data-i18n="controls.sticksHint"></p>
+              </section>
+
+              <section class="card span-2">
+                <h2 data-i18n="controls.remap"></h2>
+                <div id="remap-grid" class="remap-grid"></div>
+                <div class="row">
+                  <button id="input-reset-remap" type="button" data-i18n="controls.resetRemap"></button>
+                </div>
+                <p class="hint" data-i18n="controls.remapHint"></p>
+              </section>
+            </div>
+          </section>
+
+          <!-- Rules -->
+          <section class="view" data-view="rules" hidden>
+            <div class="grid">
+              <section class="card span-2">
+                <h2 data-i18n="rules.title"></h2>
+                <p class="hint intro" data-i18n-html="rules.intro"></p>
+                <div id="rules-list" class="rules"></div>
+                <datalist id="rule-layers"></datalist>
+                <div class="row rules-actions">
+                  <select id="rule-template" data-i18n-attr="aria-label:rules.addRule"></select>
+                  <button id="overlay-preview" type="button" data-i18n="rules.preview"></button>
+                  <button id="rules-reset" type="button" class="danger" data-i18n="rules.deleteAll"></button>
+                </div>
+                <p class="hint" data-i18n-html="rules.layersHint"></p>
+              </section>
+
+              <section class="card span-2">
+                <h2 data-i18n="rules.analogTitle"></h2>
+                <div id="analog-list" class="analogs"></div>
+                <div class="row">
+                  <button id="analog-add" type="button" data-icon="plus" data-icon-size="16"><span data-i18n="rules.addBinding"></span></button>
+                </div>
+                <p class="hint" data-i18n="rules.analogHint"></p>
+              </section>
+            </div>
+          </section>
+
+          <!-- Triggers and rumble -->
+          <section class="view" data-view="triggers" hidden>
+            <div class="grid">
+              <section class="card span-2" id="triggers-card">
+                <h2 data-i18n="triggers.title"></h2>
+                <div id="triggers" class="trigger-cols"></div>
+              </section>
+
+              <section class="card span-2">
+                <h2 data-i18n="rumble.title"></h2>
+                <div class="cols">
+                  <label class="slider"><span data-i18n="rumble.strong"></span>
+                    <input id="rumble-l" type="range" min="0" max="255" value="0" />
+                  </label>
+                  <label class="slider"><span data-i18n="rumble.weak"></span>
+                    <input id="rumble-r" type="range" min="0" max="255" value="0" />
+                  </label>
+                </div>
+                <div class="row">
+                  <button id="rumble-pulse" type="button" data-i18n="rumble.pulse"></button>
+                  <button id="rumble-stop" type="button" data-i18n="rumble.stop"></button>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <!-- Lighting -->
+          <section class="view" data-view="lighting" hidden>
+            <div class="grid">
+              <section class="card">
+                <h2 data-i18n="lighting.title"></h2>
+                <select id="lightbar-mode" data-i18n-attr="aria-label:lighting.mode"></select>
+                <div class="row lightbar-row">
+                  <input id="color" type="color" value="#4f8cff" data-i18n-attr="aria-label:lighting.fixedColor" />
+                  <button id="color-off" type="button" data-i18n="lighting.off"></button>
+                </div>
+                <div id="mode-colors" class="row lightbar-row" hidden>
+                  <label class="color-label"><span data-i18n="lighting.xbox"></span> <input id="color-xbox" type="color" /></label>
+                  <label class="color-label"><span data-i18n="lighting.native"></span> <input id="color-native" type="color" /></label>
+                </div>
+                <p id="lightbar-hint" class="hint" hidden></p>
+              </section>
+
+              <section class="card">
+                <h2 data-i18n="players.title"></h2>
+                <div id="player-leds" class="row"></div>
+                <p class="hint" data-i18n="players.hint"></p>
+              </section>
+            </div>
+          </section>
+
+          <!-- Motion -->
+          <section class="view" data-view="motion" hidden>
+            <div class="grid">
+              <section class="card span-2">
+                <h2 data-i18n="motion.title"></h2>
+                <div class="trigger-cols">
+                  <div>
+                    <h3 class="sub" data-i18n="motion.gyro"></h3>
+                    <div id="motion-gyro"></div>
+                  </div>
+                  <div>
+                    <h3 class="sub" data-i18n="motion.touchpad"></h3>
+                    <div id="motion-touchpad"></div>
+                  </div>
+                </div>
+                <p class="hint" data-i18n="motion.hint"></p>
+              </section>
+            </div>
+          </section>
+        </div>
+
+        <!-- Settings (global page) -->
+        <section class="view" data-view="settings" hidden>
+          <h1 class="page-title" data-i18n="settings.title"></h1>
+          <div class="grid">
+            <section class="card">
+              <h2 data-i18n="settings.application"></h2>
+              <label class="field-row">
+                <span data-i18n="settings.language"></span>
+                <select id="language"></select>
+              </label>
+              <label class="switch">
+                <input id="autostart" type="checkbox" />
+                <span data-i18n="settings.autostart"></span>
+              </label>
+              <label class="switch">
+                <input id="opt-low-battery" type="checkbox" />
+                <span data-i18n="settings.lowBattery"></span>
+              </label>
+              <label class="switch">
+                <input id="opt-haptics" type="checkbox" />
+                <span data-i18n="settings.haptics"></span>
+              </label>
+              <p id="app-msg" class="hint" data-i18n="settings.hint"></p>
+              <div class="row">
+                <button id="quit-app" type="button" class="danger" data-icon="power" data-icon-size="16"><span data-i18n="settings.quit"></span></button>
+              </div>
+            </section>
+
+            <section class="card hidhide">
+              <h2 data-i18n="hidhide.title"></h2>
+              <label class="switch">
+                <input id="hidhide-auto" type="checkbox" />
+                <span data-i18n="hidhide.auto"></span>
+              </label>
+              <p id="hidhide-status" class="hint">…</p>
+            </section>
+
+            <section class="card span-2">
+              <h2 data-i18n="components.title"></h2>
+              <div id="components-list" class="components"></div>
+              <p id="components-msg" class="hint" data-i18n="components.hint"></p>
+            </section>
+
+            <section class="card udp span-2">
+              <h2 data-i18n="udp.title"></h2>
+              <p id="udp-status" class="hint">…</p>
+              <pre id="udp-last" class="packet" data-i18n="udp.none"></pre>
+            </section>
+          </div>
+        </section>
+
+        <!-- Diagnostics (global page) -->
+        <section class="view" data-view="diagnostic" hidden>
+          <h1 class="page-title" data-i18n="diag.title"></h1>
+          <div class="grid">
+            <section id="diagnostics" class="card span-2 diag">
+              <div id="diag-pills" class="pills"></div>
+              <pre id="diag-text" class="packet diag-text" data-i18n="diag.loading"></pre>
+              <div class="row">
+                <button id="diag-refresh" type="button" data-i18n="diag.refresh"></button>
+                <button id="diag-copy" type="button" data-i18n="diag.copy"></button>
+                <button id="diag-clear" type="button" data-i18n="diag.clear"></button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

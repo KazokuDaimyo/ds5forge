@@ -66,6 +66,21 @@ Pour publier une version, poussez un tag (`git tag v0.1.0 && git push origin v0.
 construit l'installeur et l'attache à une release en brouillon. En local, `npm run tauri build` l'écrit dans
 `src-tauri/target/release/bundle/nsis/`.
 
+## Mises à jour
+
+L'application cherche une nouvelle version sur GitHub quelques secondes après son démarrage (une seule requête).
+Quand il y en a une, un point apparaît à côté de *Réglages*, et *Réglages → Mises à jour* propose
+**Installer et redémarrer**. Le paquet est vérifié avec la clé publique de `src-tauri/tauri.conf.json` avant
+d'être installé.
+
+Pour les mainteneurs : les mises à jour sont signées avec une paire de clés. Générez-la une fois avec
+`npx tauri signer generate -w ~/.tauri/ds5forge.key`, mettez la clé publique dans `tauri.conf.json`
+(`plugins.updater.pubkey`) et la clé privée dans les secrets du dépôt `TAURI_SIGNING_PRIVATE_KEY` (et
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` si elle a un mot de passe). **Ne commitez jamais la clé privée et gardez-en
+une sauvegarde** : sans elle, les copies installées ne peuvent plus être mises à jour. Un
+`npm run tauri build` local demande aussi `TAURI_SIGNING_PRIVATE_KEY`. La release doit être publiée (pas en
+brouillon) pour que les copies installées la voient.
+
 ## Organisation du projet
 
 | Chemin | Contenu |

@@ -134,6 +134,9 @@ pub enum Msg {
     // Component installation
     InstallFailed { code: String, detail: String },
     UnknownComponent,
+
+    // Updates
+    NoUpdateAvailable,
 }
 
 fn pick(lang: Lang, en: String, fr: String) -> String {
@@ -295,6 +298,7 @@ impl Msg {
                 format!("L'installation a échoué (code {code}) : {detail}"),
             ),
             UnknownComponent => p("Unknown component".into(), "Composant inconnu".into()),
+            NoUpdateAvailable => p("No update is available".into(), "Aucune mise à jour disponible".into()),
         }
     }
 }

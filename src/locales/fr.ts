@@ -316,6 +316,19 @@ export const fr: Record<Key, string> = {
   "components.doneRestart": "{name} installé. Redémarrer l'application pour l'utiliser ; Windows peut aussi demander un redémarrage.",
   "components.openedPage": "winget n'est pas disponible : la page de téléchargement a été ouverte dans le navigateur.",
 
+  // --- Mises à jour -----------------------------------------------------------------------
+  "updates.title": "Mises à jour",
+  "updates.version": "Version {version}",
+  "updates.hint":
+    "Les mises à jour viennent des releases GitHub du projet et sont vérifiées par une signature avant d'être installées.",
+  "updates.check": "Rechercher des mises à jour",
+  "updates.checking": "Recherche…",
+  "updates.upToDate": "DS5Forge est à jour.",
+  "updates.available": "La version {version} est disponible.",
+  "updates.install": "Installer et redémarrer",
+  "updates.installing": "Téléchargement et installation : l'application redémarre à la fin.",
+  "updates.failed": "La recherche de mises à jour a échoué : {error}",
+
   // --- Diagnostic -----------------------------------------------------------------------------
   "diag.title": "Diagnostic",
   "diag.loading": "Chargement…",

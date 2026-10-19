@@ -21,6 +21,7 @@ import {
 } from "./types";
 import { $, type Ctx } from "./ui-common";
 import { initTitlebar } from "./titlebar";
+import { initUpdatesUi } from "./updates-ui";
 import { initViews, onViewChange, refreshViews, showControllerView } from "./views";
 
 // The static markup is filled in first: some elements below read their default text.
@@ -537,6 +538,7 @@ const motionUi = initMotionUi(ctx);
 const rulesUi = initRulesUi(ctx);
 initAppUi();
 initComponentsUi();
+initUpdatesUi();
 initDiagnosticsUi();
 hydrateIcons();
 initTitlebar();

@@ -64,6 +64,21 @@ To publish a release, push a tag (`git tag v0.1.0 && git push origin v0.1.0`): t
 the installer and attaches it to a draft release. To build it locally, run `npm run tauri build`; the installer is
 written to `src-tauri/target/release/bundle/nsis/`.
 
+## Updates
+
+The application checks GitHub for a newer release a few seconds after it starts (one request, nothing is
+sent but the request itself). When one exists, a dot appears next to *Settings*, and *Settings → Updates*
+offers **Install and restart**. The package is verified against the public key stored in
+`src-tauri/tauri.conf.json` before it is installed.
+
+Maintainers: updates are signed with a key pair. Generate it once with
+`npx tauri signer generate -w ~/.tauri/ds5forge.key`, put the public key in `tauri.conf.json`
+(`plugins.updater.pubkey`), and store the private key in the repository secrets
+`TAURI_SIGNING_PRIVATE_KEY` (and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if it has a password). **Never commit
+the private key, and keep a backup**: without it, installed copies can no longer be updated. A local
+`npm run tauri build` needs `TAURI_SIGNING_PRIVATE_KEY` to be set too. The release must be published (not a
+draft) for installed copies to see it.
+
 ## Project layout
 
 | Path | Content |

@@ -119,6 +119,7 @@ fn windows_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri:
 pub fn run() {
     windows_plugins(tauri::Builder::default())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let file = app.path().app_config_dir().ok().map(|dir| dir.join("profiles.json"));
             let handle = app.handle().clone();
@@ -176,6 +177,8 @@ pub fn run() {
             commands::components_status,
             commands::install_component,
             commands::restart_app,
+            commands::check_update,
+            commands::install_update,
             commands::get_diagnostics,
             commands::clear_log,
             commands::get_autostart,

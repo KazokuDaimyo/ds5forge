@@ -316,6 +316,19 @@ export const en = {
   "components.doneRestart": "{name} installed. Restart the application to use it; Windows may also ask for a restart.",
   "components.openedPage": "winget is not available: the download page was opened in the browser.",
 
+  // --- Updates ------------------------------------------------------------------------------
+  "updates.title": "Updates",
+  "updates.version": "Version {version}",
+  "updates.hint":
+    "Updates come from the project's GitHub releases and are checked against a signature before they are installed.",
+  "updates.check": "Check for updates",
+  "updates.checking": "Checking…",
+  "updates.upToDate": "DS5Forge is up to date.",
+  "updates.available": "Version {version} is available.",
+  "updates.install": "Install and restart",
+  "updates.installing": "Downloading and installing: the application restarts when it is done.",
+  "updates.failed": "Update check failed: {error}",
+
   // --- Diagnostics ----------------------------------------------------------------------------
   "diag.title": "Diagnostics",
   "diag.loading": "Loading…",

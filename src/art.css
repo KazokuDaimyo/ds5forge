@@ -23,12 +23,11 @@
 .art .socket.on { fill: var(--accent, #5b8cff); }
 
 /* L2 / R2 triggers: they fold onto their hinge (see TRIGGER_FOLD) and take a tint according to the pressure */
-.art .trigger-cap { transition: transform 0.05s linear; }
+.art .trigger-cap { transition: none; }
 .art .trigger-fill {
   fill: var(--accent, #5b8cff);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.05s linear;
 }
 
 
@@ -41,7 +40,6 @@
   fill: var(--accent, #5b8cff);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.06s;
 }
 .art .hl.on { opacity: 0.9; }
 .art .hl[data-part="13"].on { opacity: 0.5; }

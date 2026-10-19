@@ -231,6 +231,52 @@ pub async fn install_component(app: AppHandle, component: String) -> Result<crat
     .map_err(|e| e.to_string())?
 }
 
+/// The result of an update check, for the interface.
+#[derive(serde::Serialize)]
+pub struct UpdateInfo {
+    /// The version that is running.
+    pub current: String,
+    /// The newer version published on GitHub, if there is one.
+    pub available: Option<AvailableUpdate>,
+}
+
+#[derive(serde::Serialize)]
+pub struct AvailableUpdate {
+    pub version: String,
+    pub notes: Option<String>,
+}
+
+/// Asks GitHub whether a newer version has been released (a single request; nothing is installed).
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let current = app.package_info().version.to_string();
+    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    Ok(UpdateInfo {
+        current,
+        available: update.map(|u| AvailableUpdate { version: u.version, notes: u.body }),
+    })
+}
+
+/// Downloads the newer version, checks its signature against the public key in the configuration,
+/// and runs the installer, which restarts the application. On Windows the process ends as soon as the
+/// installer starts, so the controllers are released first (rumble stopped, profiles saved,
+/// HidHide entries removed).
+#[tauri::command]
+pub async fn install_update(app: AppHandle, controllers: State<'_, Controllers>) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| Msg::NoUpdateAvailable.text())?;
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+    controllers.shutdown();
+    update.install(bytes).map_err(|e| e.to_string())
+}
+
 /// Restarts the application (after installing HidHide, which is looked for at start-up).
 #[tauri::command]
 pub fn restart_app(app: AppHandle, controllers: State<Controllers>) {

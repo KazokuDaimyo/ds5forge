@@ -734,8 +734,8 @@ fn load_profiles(path: &std::path::Path, log: &Log) -> BTreeMap<String, Profile>
     let Ok(text) = std::fs::read_to_string(path) else {
         return BTreeMap::new();
     };
-    match serde_json::from_str(&text) {
-        Ok(profiles) => profiles,
+    match serde_json::from_str::<BTreeMap<String, Profile>>(&text) {
+        Ok(profiles) => merge_duplicate_ids(profiles),
         Err(e) => {
             // Never silently overwrite the user's settings.
             let backup = path.with_extension("json.bad");
@@ -746,6 +746,27 @@ fn load_profiles(path: &std::path::Path, log: &Log) -> BTreeMap<String, Profile>
             BTreeMap::new()
         }
     }
+}
+
+/// Older versions could register the same controller under two identifiers: its MAC address
+/// (`D0:BC:C1:92:48:0F`) and, when the controller did not answer in time after a Bluetooth
+/// reconnection, its serial number (`d0bcc192480f`). Such an identifier is renamed to the canonical
+/// form; if a profile already exists under that form, it is the one in use and the duplicate is dropped.
+fn merge_duplicate_ids(profiles: BTreeMap<String, Profile>) -> BTreeMap<String, Profile> {
+    let mut merged = BTreeMap::new();
+    let mut duplicates = Vec::new();
+    for (id, profile) in profiles {
+        match controller::mac_from_serial(&id) {
+            Some(canonical) if canonical != id => duplicates.push((canonical, profile)),
+            _ => {
+                merged.insert(id, profile);
+            }
+        }
+    }
+    for (canonical, profile) in duplicates {
+        merged.entry(canonical).or_insert(profile);
+    }
+    merged
 }
 
 fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
@@ -948,6 +969,27 @@ mod tests {
         assert_eq!(profile.trigger_right, Some(TriggerEffect::Weapon { start: 3, end: 6, strength: 8 }));
         assert!(profile.virtual_pad);
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn a_profile_saved_under_a_serial_number_moves_to_the_mac_address_form() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert("d0bcc192480f".to_string(), Profile { name: "Old".into(), ..Profile::default() });
+        let merged = merge_duplicate_ids(profiles);
+        assert_eq!(merged.keys().collect::<Vec<_>>(), ["D0:BC:C1:92:48:0F"]);
+        assert_eq!(merged["D0:BC:C1:92:48:0F"].name, "Old");
+    }
+
+    #[test]
+    fn when_both_forms_exist_the_mac_address_profile_is_kept() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert("4cb99b3df6d9".to_string(), Profile { name: "Duplicate".into(), ..Profile::default() });
+        profiles.insert("4C:B9:9B:3D:F6:D9".to_string(), Profile { name: "In use".into(), ..Profile::default() });
+        profiles.insert("serial-number".to_string(), Profile { name: "Other".into(), ..Profile::default() });
+        let merged = merge_duplicate_ids(profiles);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged["4C:B9:9B:3D:F6:D9"].name, "In use");
+        assert_eq!(merged["serial-number"].name, "Other", "identifiers that are not MAC addresses are left alone");
     }
 
     #[test]

@@ -240,22 +240,43 @@ pub fn open(api: &HidApi, info: &DeviceInfo) -> Option<(HidDevice, bool)> {
     Some((device, bluetooth))
 }
 
-/// A controller's stable identifier: its MAC address, identical over USB and Bluetooth.
-/// Feature report 0x09 contains the address in little-endian order at bytes 1 to 6.
+/// Formats the six bytes of a MAC address as `AA:BB:CC:DD:EE:FF`.
+fn format_mac(bytes: impl Iterator<Item = u8>) -> String {
+    bytes.map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
+}
+
+/// Brings a serial number that is a MAC address (`d0bcc1924 80f`, `D0-BC-C1-92-48-0F`…) to the
+/// canonical form. Over Bluetooth, Windows reports the MAC address as the serial number.
+pub fn mac_from_serial(serial: &str) -> Option<String> {
+    let digits: String = serial.chars().filter(|c| !matches!(c, ':' | '-' | ' ')).collect();
+    if digits.len() != 12 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let bytes = (0..6).map(|i| u8::from_str_radix(&digits[2 * i..2 * i + 2], 16).unwrap_or(0));
+    Some(format_mac(bytes))
+}
+
+/// A controller's stable identifier: its MAC address, identical over USB and Bluetooth, and
+/// identical from one connection to the next. If it were not, the same controller would be taken
+/// for a new one after a reconnection and get a second profile.
+///
+/// Feature report 0x09 contains the address in little-endian order at bytes 1 to 6. Right after a
+/// Bluetooth reconnection the controller may not answer yet, so the request is repeated; failing
+/// that, the serial number (which is the same address) is used, in the same format.
 pub fn identify(device: &HidDevice, info: &DeviceInfo) -> String {
-    let mut buf = [0u8; 20];
-    buf[0] = 0x09;
-    if matches!(device.get_feature_report(&mut buf), Ok(n) if n >= 7) {
-        return buf[1..7]
-            .iter()
-            .rev()
-            .map(|b| format!("{b:02X}"))
-            .collect::<Vec<_>>()
-            .join(":");
+    for attempt in 0..4 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let mut buf = [0u8; 20];
+        buf[0] = 0x09;
+        if matches!(device.get_feature_report(&mut buf), Ok(n) if n >= 7) {
+            return format_mac(buf[1..7].iter().rev().copied());
+        }
     }
     // Fallback: the serial number, then the device path.
     match info.serial_number() {
-        Some(s) if !s.is_empty() => s.to_string(),
+        Some(s) if !s.is_empty() => mac_from_serial(s).unwrap_or_else(|| s.to_string()),
         _ => info.path().to_string_lossy().into_owned(),
     }
 }
@@ -988,6 +1009,22 @@ mod tests {
         let off = Output { blip: false, rumble_right: 0, ..Default::default() };
         fill_common(&mut c, &off, group::ALL, false);
         assert_eq!(c[2], 0);
+    }
+
+    #[test]
+    fn a_serial_number_that_is_a_mac_address_gives_the_same_identifier_as_the_feature_report() {
+        // The feature report gives AA:BB:CC:DD:EE:FF; the serial number must not create another identity.
+        for serial in ["D0BCC192480F", "d0bcc192480f", "d0:bc:c1:92:48:0f", "D0-BC-C1-92-48-0F"] {
+            assert_eq!(mac_from_serial(serial).as_deref(), Some("D0:BC:C1:92:48:0F"), "{serial}");
+        }
+        assert_eq!(format_mac([0xD0, 0xBC, 0xC1, 0x92, 0x48, 0x0F].into_iter()), "D0:BC:C1:92:48:0F");
+    }
+
+    #[test]
+    fn other_serial_numbers_are_not_taken_for_mac_addresses() {
+        assert_eq!(mac_from_serial(""), None);
+        assert_eq!(mac_from_serial("12345"), None);
+        assert_eq!(mac_from_serial("ZZBCC192480F"), None);
     }
 
     #[test]

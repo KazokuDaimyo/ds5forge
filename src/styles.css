@@ -448,6 +448,9 @@ button {
 button:hover:not(:disabled) { background: var(--surface-3); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
+/* The call to action of an available update: green, so that it stands out from the other buttons. */
+button.update { background: var(--ok); border-color: var(--ok); color: #06210f; font-weight: 650; }
+button.update:hover:not(:disabled) { background: color-mix(in srgb, var(--ok) 82%, #fff); }
 button.danger { color: var(--bad); }
 button.danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--bad) 14%, transparent);
@@ -471,6 +474,19 @@ select:focus { outline: none; border-color: var(--accent); }
 select option { background: var(--surface); color: var(--text); }
 
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+/* A dot on the Settings entry when an update is available. */
+.nav-item.has-update { position: relative; }
+.nav-item.has-update::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 
 /* Optional components (drivers) with their status and an install button. */
 .components { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }

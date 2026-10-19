@@ -1,6 +1,6 @@
 [package]
 name = "ds5forge"
-version = "0.1.1"
+version = "0.1.2"
 description = "A DualSense controller companion for Windows"
 license = "MIT"
 edition = "2024"

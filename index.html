@@ -31,6 +31,7 @@
         </div>
 
         <nav class="side-nav" data-i18n-attr="aria-label:sidebar.application">
+          <button type="button" class="nav-item" data-nav="profiles" data-icon="layers"><span data-i18n="nav.profiles"></span></button>
           <button type="button" class="nav-item" data-nav="settings" data-icon="settings"><span data-i18n="nav.settings"></span></button>
           <button type="button" class="nav-item" data-nav="diagnostic" data-icon="pulse"><span data-i18n="nav.diagnostics"></span></button>
         </nav>
@@ -52,6 +53,7 @@
               </div>
             </div>
             <div class="head-bottom">
+              <label id="preset-box" class="preset-box" hidden><span data-i18n="head.profile"></span> <select id="preset-select"></select></label>
               <button id="power-off" type="button" class="danger" data-icon="power" data-icon-size="16"><span data-i18n="head.powerOff"></span></button>
               <span id="power-msg" class="hint"></span>
               <p class="hint id-line"><span data-i18n="head.id"></span> <code id="ctrl-id"></code></p>
@@ -208,6 +210,33 @@
           </section>
         </div>
 
+        <!-- Profiles (global page) -->
+        <section class="view" data-view="profiles" hidden>
+          <h1 class="page-title" data-i18n="profiles.title"></h1>
+          <div class="grid">
+            <section class="card span-2">
+              <h2 data-i18n="profiles.list"></h2>
+              <p class="hint" data-i18n="profiles.hint"></p>
+              <div id="games-list" class="presets"></div>
+              <p id="games-msg" class="hint"></p>
+            </section>
+
+            <section class="card span-2">
+              <h2 data-i18n="profiles.add"></h2>
+              <p class="hint" data-i18n="profiles.addHint"></p>
+              <div class="row preset-row">
+                <select id="game-running" data-i18n-attr="aria-label:profiles.addRunning"></select>
+                <input id="game-exe" type="text" maxlength="128" data-i18n-attr="placeholder:profiles.exePlaceholder; aria-label:profiles.exePlaceholder" />
+              </div>
+              <div class="row preset-row">
+                <input id="game-name" type="text" maxlength="32" data-i18n-attr="placeholder:profiles.namePlaceholder; aria-label:profiles.namePlaceholder" />
+                <button id="game-create" type="button" data-icon="plus" data-icon-size="16"><span data-i18n="profiles.create"></span></button>
+              </div>
+              <p id="add-msg" class="hint"></p>
+            </section>
+          </div>
+        </section>
+
         <!-- Settings (global page) -->
         <section class="view" data-view="settings" hidden>
           <h1 class="page-title" data-i18n="settings.title"></h1>
@@ -229,6 +258,14 @@
               <label class="switch">
                 <input id="opt-haptics" type="checkbox" />
                 <span data-i18n="settings.haptics"></span>
+              </label>
+              <label class="switch">
+                <input id="opt-menu" type="checkbox" />
+                <span data-i18n="settings.menu"></span>
+              </label>
+              <label class="switch">
+                <input id="opt-menu-focus" type="checkbox" />
+                <span data-i18n="settings.menuFocus"></span>
               </label>
               <p id="app-msg" class="hint" data-i18n="settings.hint"></p>
               <div class="row">

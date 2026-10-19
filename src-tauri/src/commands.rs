@@ -9,7 +9,7 @@ use crate::i18n::{Lang, Msg};
 use crate::input::InputConfig;
 use crate::keys::{self, KeyInfo};
 use crate::lightbar::{LightbarMode, ModeColors};
-use crate::manager::{ControllerInfo, Controllers, Settings};
+use crate::manager::{ControllerInfo, Controllers, PresetsInfo, Settings};
 use crate::motion::MotionConfig;
 use crate::triggers::TriggerEffect;
 use crate::udp::UdpStatus;
@@ -102,6 +102,46 @@ pub fn set_analog(controllers: State<Controllers>, id: String, analog: Vec<Analo
     controllers.send(&id, Command::ProfileChanged);
 }
 
+/// Tells whether the window is in the foreground (a game profile chosen by hand only applies then).
+#[tauri::command]
+pub fn set_ui_focus(controllers: State<Controllers>, focused: bool) {
+    controllers.set_ui_focus(focused);
+}
+
+/// The profiles and the game rules.
+#[tauri::command]
+pub fn get_presets(controllers: State<Controllers>) -> PresetsInfo {
+    controllers.presets_info()
+}
+
+#[tauri::command]
+pub fn set_controller_preset(controllers: State<Controllers>, id: String, preset: String) -> Result<(), String> {
+    controllers.set_controller_preset(&id, &preset)
+}
+
+/// Creates a game profile (a copy of `from`) for the program `exe`. Returns its name.
+#[tauri::command]
+pub fn create_game_profile(controllers: State<Controllers>, name: String, exe: String, from: String) -> Result<String, String> {
+    controllers.create_game_profile(&name, &exe, &from)
+}
+
+#[tauri::command]
+pub fn rename_preset(controllers: State<Controllers>, old: String, new: String) -> Result<String, String> {
+    controllers.rename_preset(&old, &new)
+}
+
+#[tauri::command]
+pub fn delete_preset(controllers: State<Controllers>, name: String) -> Result<(), String> {
+    controllers.delete_preset(&name)
+}
+
+/// The programs that have a visible window, to pick a game from a list. Asynchronous: it queries
+/// every window and process.
+#[tauri::command]
+pub async fn list_running_apps() -> Vec<String> {
+    crate::games::running_apps()
+}
+
 /// The keyboard keys that rules can send, labelled in the current language.
 #[tauri::command]
 pub fn list_keys() -> Vec<KeyInfo> {
@@ -130,6 +170,18 @@ pub async fn set_hidhide_auto(controllers: State<'_, Controllers>, enabled: bool
 #[tauri::command]
 pub async fn hidhide_status(controllers: State<'_, Controllers>) -> Result<CloakStatus, String> {
     Ok(controllers.cloak_status())
+}
+
+/// Whether the open controller menu takes the focus away from the game.
+#[tauri::command]
+pub fn set_menu_focus(controllers: State<Controllers>, enabled: bool) {
+    controllers.set_menu_focus(enabled);
+}
+
+/// Turns the controller menu (long press on PS) on or off.
+#[tauri::command]
+pub fn set_controller_menu(controllers: State<Controllers>, enabled: bool) {
+    controllers.set_controller_menu(enabled);
 }
 
 #[tauri::command]

@@ -10,10 +10,12 @@ import { hydrateIcons } from "./icons";
 import { initInputUi } from "./input-ui";
 import { initLightingUi } from "./lighting-ui";
 import { initMotionUi } from "./motion-ui";
+import { initProfilesUi } from "./profiles-ui";
 import { initRulesUi } from "./rules-ui";
 import {
   type ControllerInfo,
   type Kind,
+  type PresetsInfo,
   type Profile,
   type Side,
   type StateEvent,
@@ -147,8 +149,65 @@ function renderBattery() {
   }
 }
 
+/** Shows a game profile on the selected controller, to edit it, and goes to the controller's page. */
+function editProfile(name: string) {
+  const id = selected;
+  if (!id) return;
+  invoke("set_controller_preset", { id, preset: name })
+    .then(() => showControllerView())
+    .catch((error) => {
+      powerMsg.textContent = String(error);
+      powerMsg.classList.add("error");
+    });
+}
+
+// --- Window focus -----------------------------------------------------------------------
+// A game profile chosen in the selector is for editing and trying out: the backend only applies it while
+// this window is in the foreground, so that the game gets its own profile (or the default one).
+const reportFocus = () =>
+  void invoke("set_ui_focus", { focused: document.hasFocus() && document.visibilityState === "visible" });
+window.addEventListener("focus", reportFocus);
+window.addEventListener("blur", reportFocus);
+document.addEventListener("visibilitychange", reportFocus);
+reportFocus();
+
+// --- Profile selector ----------------------------------------------------------------
+
+const presetSelect = $<HTMLSelectElement>("preset-select");
+const presetBox = $("preset-box");
+/** The profile whose settings the interface is showing: when it changes, they are loaded again. */
+let loadedPreset: string | null = null;
+/** The names of the game profiles, as of the last refresh. */
+let gameProfiles: string[] = [];
+
+/**
+ * The selector offers the default profile (the user's settings) and the game profiles, and only
+ * exists once there is a game profile. Choosing a game profile shows it for editing; it is not saved.
+ */
+function renderPresetSelect() {
+  const c = current();
+  presetBox.hidden = !c || gameProfiles.length === 0;
+  presetSelect.replaceChildren(new Option(t("preset.default"), ""), ...gameProfiles.map((n) => new Option(n, n)));
+  if (c) presetSelect.value = c.manual ?? "";
+}
+
+presetSelect.addEventListener("change", () => {
+  const id = selected;
+  if (!id) return;
+  powerMsg.classList.remove("error");
+  invoke("set_controller_preset", { id, preset: presetSelect.value }).catch((error) => {
+    powerMsg.textContent = String(error);
+    powerMsg.classList.add("error");
+  });
+});
+
 async function refresh() {
-  controllers = await invoke<ControllerInfo[]>("list_controllers");
+  const [list, presets] = await Promise.all([
+    invoke<ControllerInfo[]>("list_controllers"),
+    invoke<PresetsInfo>("get_presets"),
+  ]);
+  controllers = list;
+  gameProfiles = presets.games.map((g) => g.preset);
   for (const c of controllers) if (!c.connected) batteries.delete(c.id);
   const selectionChanged = !controllers.some((c) => c.id === selected);
   if (selectionChanged) {
@@ -156,7 +215,10 @@ async function refresh() {
   }
   renderTabs();
   renderStatus();
-  if (selectionChanged) loadProfile();
+  renderPresetSelect();
+  // The settings shown belong to the profile in force: they are read again when it changes (the
+  // user chose another profile, or a game came to the foreground).
+  if (selectionChanged || (current() && current()?.effective_preset !== loadedPreset)) loadProfile();
   if (!current()?.connected) resetLive();
 }
 
@@ -168,6 +230,7 @@ function select(id: string) {
   selected = id;
   renderTabs();
   renderStatus();
+  renderPresetSelect();
   loadProfile();
   resetLive();
 }
@@ -432,6 +495,7 @@ function loadProfile() {
   const c = current();
   if (!c) return;
   const p = c.profile;
+  loadedPreset = c.effective_preset;
 
   nameInput.value = p.name;
   $("ctrl-id").textContent = c.id;
@@ -537,6 +601,7 @@ const inputUi = initInputUi(ctx);
 const motionUi = initMotionUi(ctx);
 const rulesUi = initRulesUi(ctx);
 initAppUi();
+initProfilesUi(() => current()?.preset ?? null, editProfile);
 initComponentsUi();
 initUpdatesUi();
 initDiagnosticsUi();

@@ -12,6 +12,7 @@ mod controller;
 mod desktop;
 mod diagnostics;
 mod events;
+mod games;
 mod haptics;
 mod hidhide;
 mod i18n;
@@ -20,6 +21,7 @@ mod install;
 mod keys;
 mod lightbar;
 mod manager;
+mod menu;
 mod motion;
 mod mouse;
 #[cfg(not(test))]
@@ -130,6 +132,8 @@ pub fn run() {
             let events = Events::new(move |name, payload| {
                 if name == "overlay" {
                     overlay::show(&handle, payload);
+                } else if name == "overlay-hide" {
+                    overlay::hide(&handle);
                 } else {
                     let _ = handle.emit(name, payload);
                 }
@@ -140,6 +144,7 @@ pub fn run() {
             create_tray(app)?;
 
             manager::start(controllers.clone());
+            manager::start_game_watcher(controllers.clone());
             let udp_status = udp::start(events, controllers.clone());
 
             app.manage(udp_status);
@@ -168,9 +173,18 @@ pub fn run() {
             commands::set_rules,
             commands::set_analog,
             commands::list_keys,
+            commands::set_ui_focus,
+            commands::get_presets,
+            commands::set_controller_preset,
+            commands::create_game_profile,
+            commands::rename_preset,
+            commands::delete_preset,
+            commands::list_running_apps,
             commands::preview_overlay,
             commands::get_settings,
             commands::set_notifications,
+            commands::set_controller_menu,
+            commands::set_menu_focus,
             commands::set_language,
             commands::set_hidhide_auto,
             commands::hidhide_status,

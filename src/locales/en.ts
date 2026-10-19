@@ -285,6 +285,8 @@ export const en = {
   "settings.autostart": "Launch at Windows startup",
   "settings.lowBattery": "Low battery alert",
   "settings.haptics": "Confirmation vibration",
+  "settings.menu": "Hold the PS button to open the controller menu",
+  "settings.menuFocus": "The menu takes the focus, so that games stop reacting to the controller",
   "settings.hint":
     "Closing the window minimizes the application to the notification area: virtual controllers keep working.",
   "settings.quit": "Quit the application",
@@ -315,6 +317,26 @@ export const en = {
   "components.done": "{name} installed.",
   "components.doneRestart": "{name} installed. Restart the application to use it; Windows may also ask for a restart.",
   "components.openedPage": "winget is not available: the download page was opened in the browser.",
+
+  // --- Game profiles ---------------------------------------------------------------------
+  "nav.profiles": "Game profiles",
+  "head.profile": "Profile",
+  "preset.default": "Default",
+  "profiles.title": "Game profiles",
+  "profiles.list": "Your game profiles",
+  "profiles.hint":
+    "Your settings apply by default. A game profile has its own settings (lighting, triggers, rules, sticks, motion) and is used automatically while its program is in the foreground. To set one up, pick it in the Profile selector of a controller: it is applied while this window is in the foreground, so you can try it before launching the game.",
+  "profiles.edit": "Edit",
+  "profiles.delete": "Delete",
+  "profiles.confirmDelete": "Delete the game profile “{name}”?",
+  "profiles.noGames": "No game profiles yet.",
+  "profiles.add": "Add a game profile",
+  "profiles.addHint":
+    "The new profile starts as a copy of your current settings. Only the name of the foreground program is read; nothing is injected into games.",
+  "profiles.addRunning": "Pick a running application…",
+  "profiles.exePlaceholder": "Program name, for example game.exe",
+  "profiles.namePlaceholder": "Profile name (optional)",
+  "profiles.create": "Create game profile",
 
   // --- Updates ------------------------------------------------------------------------------
   "updates.title": "Updates",

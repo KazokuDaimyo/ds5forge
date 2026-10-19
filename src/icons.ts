@@ -1,3 +1,5 @@
+import { normalizeSvg } from "./brand";
+
 // Interface icons: simple 24×24 strokes, drawn as outlines so that they inherit the text colour.
 
 const PATHS: Record<string, string> = {
@@ -11,6 +13,14 @@ const PATHS: Record<string, string> = {
   motion: '<path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 3.5v4.4h-4.4"/><circle cx="12" cy="12" r="1.6"/>',
   settings:
     '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="m3 12.5 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
+  battery: '<rect x="2.5" y="8" width="16" height="9" rx="2.5"/><path d="M21 11v3"/>',
+  alert: '<path d="M12 3.5 21.5 20h-19z"/><path d="M12 10v4.5M12 17.5v.01"/>',
+  xbox: '<circle cx="12" cy="12" r="9"/><path d="m8.5 8.5 7 7M15.5 8.5l-7 7"/>',
+  message: '<path d="M4 5.5h16a1 1 0 0 1 1 1V16a1 1 0 0 1-1 1h-8l-4.5 3.5V17H4a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1z"/>',
+  "chevron-left": '<path d="m14.5 6-6 6 6 6"/>',
+  "chevron-right": '<path d="m9.5 6 6 6-6 6"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   pulse: '<path d="M3 12h4l2.5-7 4 14 2.5-7H21"/>',
   power: '<path d="M12 3v8"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/>',
   bluetooth: '<path d="m7 7 10 10-5 4.5V2.5L17 7 7 17"/>',
@@ -24,6 +34,22 @@ const PATHS: Record<string, string> = {
 };
 
 export type IconName = keyof typeof PATHS;
+
+/** The logo files in `src/assets/brand/` (`xbox.svg`, `playstation.svg`; see the README there). */
+const BRAND_FILES = import.meta.glob("./assets/brand/*.svg", { query: "?raw", import: "default", eager: true }) as Record<
+  string,
+  string
+>;
+
+export type BrandName = "xbox" | "playstation";
+
+/** A brand logo as an inline icon (`null` only if the file cannot be read as an SVG). */
+export function brandIcon(name: BrandName, size = 18): string | null {
+  const raw = BRAND_FILES[`./assets/brand/${name}.svg`];
+  return raw ? normalizeSvg(raw, size) : null;
+}
+
+export const isIcon = (name: string): name is IconName => name in PATHS;
 
 export function icon(name: IconName, size = 18): string {
   return (

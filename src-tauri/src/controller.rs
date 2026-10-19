@@ -7,6 +7,7 @@ use crate::desktop;
 use crate::haptics::{self, Haptics, Pattern};
 use crate::i18n::Msg;
 use crate::lightbar::{self, LightbarMode};
+use crate::menu::{self, HoldDetector, Menu, MenuRow, MenuView, Row};
 use crate::manager::{Controllers, LiveConfig};
 use crate::motion::Motion;
 use crate::mouse;
@@ -452,6 +453,19 @@ struct Session {
     snapshot: Snapshot,
     /// End of a vibration requested by a rule.
     rumble_until: Option<Instant>,
+    /// The controller menu, while it is open (see `menu`).
+    menu: Option<Menu>,
+    /// Detects the long press on PS that opens the menu.
+    ps_hold: HoldDetector,
+    /// After the menu closes, nothing is passed on until every button has been released: a button
+    /// still held (the one that closed the menu) would otherwise count as a new press in the game.
+    suppress_input: bool,
+    /// The menu is closed but still shown, and still has the focus: both go once every button has been
+    /// released. Giving the focus back while the button that closed the menu is still down would let the
+    /// game, which reads the controller directly, see that press.
+    hide_pending: bool,
+    /// The buttons of the latest report.
+    last_buttons: u32,
     reports: u32,
     rate_since: Instant,
 }
@@ -479,6 +493,11 @@ impl Session {
             battery: (None, Charge::Unknown),
             snapshot: Snapshot::default(),
             rumble_until: None,
+            menu: None,
+            ps_hold: HoldDetector::default(),
+            suppress_input: false,
+            hide_pending: false,
+            last_buttons: 0,
             reports: 0,
             rate_since: Instant::now(),
         }
@@ -540,7 +559,7 @@ impl Session {
             if settings.low_battery_alert {
                 let message = alerts::message(alert, self.battery.0.unwrap_or(0)).text();
                 ctx.controllers.log().warn("battery", format!("{}: {message}", ctx.id));
-                ctx.controllers.show_overlay(&ctx.id, Some(message));
+                ctx.controllers.show_notice(&ctx.id, "battery-low", message);
                 if settings.haptic_feedback {
                     self.haptics.start(Pattern::Long, Instant::now());
                 }
@@ -560,10 +579,104 @@ impl Session {
         }
     }
 
+    // --- Controller menu ---------------------------------------------------------------
+
+    /// Draws the menu in the overlay, from its state and the current mode and profile.
+    fn draw_menu(&self, ctx: &DeviceCtx) {
+        let Some(menu) = self.menu.as_ref() else {
+            return;
+        };
+        let rows = menu
+            .rows()
+            .iter()
+            .map(|row| match row {
+                Row::Mode => MenuRow {
+                    icon: (if self.out.virtual_pad { "xbox" } else { "gamepad" }).to_string(),
+                    label: Msg::MenuMode.text(),
+                    value: Some(if self.out.virtual_pad { "Xbox 360".to_string() } else { Msg::MenuNative.text() }),
+                },
+                Row::Profile => {
+                    let (_, chosen) = ctx.controllers.menu_profiles(&ctx.id);
+                    MenuRow {
+                        icon: "layers".to_string(),
+                        label: Msg::MenuProfile.text(),
+                        value: Some(chosen.unwrap_or_else(|| Msg::MenuAutomatic.text())),
+                    }
+                }
+                Row::Close => MenuRow { icon: "close".to_string(), label: Msg::MenuClose.text(), value: None },
+            })
+            .collect();
+        ctx.controllers.show_menu(&ctx.id, MenuView { rows, cursor: menu.cursor() });
+    }
+
+    fn open_menu(&mut self, now: Instant, ctx: &DeviceCtx) {
+        let (profiles, _) = ctx.controllers.menu_profiles(&ctx.id);
+        self.menu = Some(Menu::open(!profiles.is_empty(), self.last_buttons, now));
+        if ctx.controllers.settings().haptic_feedback {
+            self.haptics.start(Pattern::Single, now);
+        }
+        self.draw_menu(ctx);
+    }
+
+    /// Closes the menu. It stays on screen, with the focus, until the buttons are released (see `hide_pending`).
+    fn close_menu(&mut self) {
+        self.menu = None;
+        self.suppress_input = true;
+        self.hide_pending = true;
+    }
+
+    /// Opens the menu on a long press of PS, and carries out what the user asks while it is open.
+    fn update_menu(&mut self, buttons: u32, now: Instant, ctx: &DeviceCtx, self_tx: &Sender<Command>) {
+        let Some(menu) = self.menu.as_mut() else {
+            if self.ps_hold.update(buttons & btn::PS != 0, now) && ctx.controllers.controller_menu_enabled() {
+                self.open_menu(now, ctx);
+            }
+            return;
+        };
+        let actions = menu.update(buttons, now);
+        let timed_out = menu.timed_out(now);
+        for action in actions {
+            match action {
+                menu::Action::Moved => {}
+                menu::Action::ToggleMode => self.perform(AppAction::ToggleVirtualPad, ctx, self_tx),
+                menu::Action::CycleProfile(direction) => {
+                    ctx.controllers.cycle_chosen(&ctx.id, direction);
+                }
+                menu::Action::Close => {
+                    self.close_menu();
+                    return;
+                }
+            }
+            self.draw_menu(ctx);
+        }
+        if timed_out {
+            self.close_menu();
+        }
+    }
+
     /// Handles a new input report.
-    fn on_state(&mut self, state: &ControllerState, ctx: &DeviceCtx, self_tx: &Sender<Command>) {
+    fn on_state(&mut self, raw: &ControllerState, ctx: &DeviceCtx, self_tx: &Sender<Command>) {
+        self.last_buttons = raw.buttons;
+        self.update_menu(raw.buttons, Instant::now(), ctx, self_tx);
+
+        // While the menu is open, and until every button has been released after it, the rules and
+        // the virtual controller see an idle controller: the menu takes the buttons, not the game.
+        let neutral;
+        let state = if self.menu.is_some() || (self.suppress_input && raw.buttons != 0) {
+            neutral = menu::neutral(raw);
+            &neutral
+        } else {
+            self.suppress_input = false;
+            raw
+        };
         self.snapshot = Snapshot::from(state);
         self.reports += 1;
+
+        // The menu goes (and the game gets the focus back) once nothing is pressed any more.
+        if self.hide_pending && self.menu.is_none() && raw.buttons == 0 {
+            self.hide_pending = false;
+            ctx.controllers.hide_overlay();
+        }
 
         if (state.battery, state.charge) != self.battery {
             self.battery = (state.battery, state.charge);
@@ -596,7 +709,7 @@ impl Session {
         match action {
             AppAction::ShowOverlay => controllers.show_overlay(&ctx.id, None),
 
-            AppAction::Message { text } => controllers.show_overlay(&ctx.id, Some(text)),
+            AppAction::Message { text } => controllers.show_notice(&ctx.id, "message", text),
 
             AppAction::Lightbar { r, g, b } => {
                 self.out.apply(Command::Lightbar(r, g, b));
@@ -619,28 +732,28 @@ impl Session {
                 // The mode changed: a light bar tied to the mode must change colour.
                 self.refresh_lightbar(false);
 
-                let message = match (pad_error, want) {
+                let (icon, message) = match (pad_error, want) {
                     (Some(error), _) => {
                         buzz(&mut self.haptics, Pattern::Long);
-                        error
+                        ("alert", error)
                     }
                     (None, true) => {
                         buzz(&mut self.haptics, Pattern::Single);
-                        with_cloak_error(Msg::ModeXbox360, cloak_error)
+                        ("xbox", with_cloak_error(Msg::ModeXbox360, cloak_error))
                     }
                     (None, false) => {
                         buzz(&mut self.haptics, Pattern::Double);
-                        with_cloak_error(Msg::ModeNative, cloak_error)
+                        ("gamepad", with_cloak_error(Msg::ModeNative, cloak_error))
                     }
                 };
-                controllers.show_overlay(&ctx.id, Some(message));
+                controllers.show_notice(&ctx.id, icon, message);
             }
 
             AppAction::PowerOff => {
-                controllers.show_overlay(&ctx.id, Some(Msg::PoweringOff.text()));
+                controllers.show_notice(&ctx.id, "power", Msg::PoweringOff.text());
                 if let Err(error) = controllers.power_off(&ctx.id) {
                     buzz(&mut self.haptics, Pattern::Long);
-                    controllers.show_overlay(&ctx.id, Some(error));
+                    controllers.show_notice(&ctx.id, "alert", error);
                 }
             }
 
@@ -652,7 +765,7 @@ impl Session {
                     (Msg::MotionDisabled, Pattern::Double)
                 };
                 buzz(&mut self.haptics, pattern);
-                controllers.show_overlay(&ctx.id, Some(message.text()));
+                controllers.show_notice(&ctx.id, "motion", message.text());
             }
         }
     }
@@ -790,6 +903,9 @@ pub fn run_device(
                 last_emit = Instant::now();
             }
         }
+    }
+    if s.menu.is_some() || s.hide_pending {
+        ctx.controllers.hide_overlay(); // the controller went away with its menu open
     }
     // `s.pad` is dropped here: the virtual controller is unplugged together with the real one.
 }

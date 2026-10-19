@@ -8,10 +8,12 @@ use crate::bluetooth;
 use crate::controller::{self, Charge, Command, DeviceCtx};
 use crate::diagnostics::{ControllerDiag, Log};
 use crate::events::Events;
+use crate::games::{self, GameRule};
 use crate::hidhide::{Cloak, CloakStatus, NoCloak};
 use crate::i18n::{self, Lang, Msg};
 use crate::input::InputConfig;
 use crate::lightbar::{LightbarMode, ModeColors};
+use crate::menu::MenuView;
 use crate::motion::MotionConfig;
 use crate::shortcuts::{default_shortcuts, Shortcut};
 use crate::triggers::TriggerEffect;
@@ -152,11 +154,15 @@ pub struct Settings {
     /// Interface language chosen by the user. `None`: not chosen yet, the interface picks one
     /// from the system language.
     pub language: Option<Lang>,
+    /// Holding the PS button opens the controller menu (see `menu`).
+    pub controller_menu: bool,
+    /// The open menu takes the focus, so that a game in the background stops reacting to the controller.
+    pub menu_focus: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { hidhide_auto: false, low_battery_alert: true, haptic_feedback: true, language: None }
+        Self { hidhide_auto: false, low_battery_alert: true, haptic_feedback: true, language: None, controller_menu: true, menu_focus: true }
     }
 }
 
@@ -189,6 +195,12 @@ pub struct OverlayController {
 pub struct OverlayPayload {
     /// One-off message ("Xbox 360 mode"…), shown above the list.
     pub message: Option<String>,
+    /// Name of the icon drawn with the message (see `src/icons.ts`).
+    pub icon: Option<String>,
+    /// The controller menu, when it is open: the overlay then stays until it is closed.
+    pub menu: Option<MenuView>,
+    /// The overlay window must take the focus while the menu is open (see `Settings::menu_focus`).
+    pub take_focus: bool,
     pub controllers: Vec<OverlayController>,
 }
 
@@ -197,8 +209,53 @@ pub struct ControllerInfo {
     pub id: String,
     pub connected: bool,
     pub bluetooth: bool,
+    /// The controller's name and the settings of the profile in force (see `effective_preset`).
     pub profile: Profile,
+    /// The controller's default profile.
+    pub preset: String,
+    /// The game profile chosen by hand on this controller, if any.
+    pub manual: Option<String>,
+    /// The profile in force: the game in the foreground's, else the one chosen by hand, else `preset`.
+    pub effective_preset: String,
 }
+
+/// The profiles and the game rules, for the profiles page.
+#[derive(Serialize, Clone, Debug)]
+pub struct PresetsInfo {
+    pub presets: Vec<String>,
+    pub games: Vec<GameRule>,
+}
+
+/// What is saved for each controller: its name and its default profile (the settings the user
+/// edits; the interface does not show it as a profile).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+struct ControllerEntry {
+    name: String,
+    preset: String,
+    /// A game profile the user is editing or trying out on this controller. Not saved: the
+    /// controller goes back to its default profile at the next start.
+    #[serde(skip)]
+    manual: Option<String>,
+    /// A game profile chosen from the controller menu. Not saved. Unlike `manual` it applies even
+    /// while a game is in the foreground, and it wins over the profile of the game, until
+    /// "Automatic" is chosen in the menu.
+    #[serde(skip)]
+    chosen: Option<String>,
+}
+
+/// The content of `profiles.json` (format 2). Format 1 was a map from controller identifier to
+/// profile; it is converted when read.
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct Store {
+    version: u32,
+    controllers: BTreeMap<String, ControllerEntry>,
+    /// The profiles, by name. They are shared: any controller can use any of them.
+    presets: BTreeMap<String, Profile>,
+    games: Vec<GameRule>,
+}
+
+const STORE_VERSION: u32 = 2;
 
 struct Active {
     tx: Sender<Command>,
@@ -211,7 +268,19 @@ struct Active {
 }
 
 struct Inner {
-    profiles: BTreeMap<String, Profile>,
+    controllers: BTreeMap<String, ControllerEntry>,
+    presets: BTreeMap<String, Profile>,
+    games: Vec<GameRule>,
+    /// The profile that a game in the foreground imposes on every controller (not saved).
+    auto_preset: Option<String>,
+    /// Whether this application's window is in the foreground. A game profile chosen by hand is
+    /// only in force while it is: it is for editing and trying out, so it must not follow the user
+    /// into the game, where the game's own profile (or the default one) applies.
+    ui_focused: bool,
+    /// The controller menu is displayed (from `show_menu` to `hide_overlay`). It takes the focus, which
+    /// puts a window of this application in the foreground: the game watcher must not take that for the
+    /// player having left the game.
+    menu_open: bool,
     active: BTreeMap<String, Active>,
     file: Option<PathBuf>,
     dirty: bool,
@@ -219,6 +288,50 @@ struct Inner {
     settings_dirty: bool,
     /// Controllers that WE hid: id -> HidHide instance path.
     hidden: BTreeMap<String, String>,
+}
+
+impl Inner {
+    /// The profile in force for a controller: the one chosen from its menu, else the one of the game
+    /// in the foreground, else the game profile chosen by hand (while this window is in the
+    /// foreground), else the controller's default profile.
+    fn effective_preset(&self, id: &str) -> Option<&str> {
+        let entry = self.controllers.get(id)?;
+        fn existing<'a>(presets: &BTreeMap<String, Profile>, name: &'a Option<String>) -> Option<&'a str> {
+            name.as_deref().filter(|n| presets.contains_key(*n))
+        }
+        // A game only concerns the controllers that are connected: the others keep showing their own settings.
+        let game = existing(&self.presets, &self.auto_preset).filter(|_| self.active.contains_key(id));
+        Some(
+            existing(&self.presets, &entry.chosen)
+                .or(game)
+                .or_else(|| existing(&self.presets, &entry.manual).filter(|_| self.ui_focused))
+                .unwrap_or(entry.preset.as_str()),
+        )
+    }
+
+    /// The controller as the rest of the application sees it: the settings of the profile in force,
+    /// under the controller's own name.
+    fn view(&self, id: &str) -> Option<Profile> {
+        let entry = self.controllers.get(id)?;
+        let preset = self.presets.get(self.effective_preset(id)?)?;
+        Some(Profile { name: entry.name.clone(), ..preset.clone() })
+    }
+}
+
+/// `base`, or `base 2`, `base 3`… if that name is taken. Never longer than `MAX_NAME_LEN`.
+fn unique_name(base: &str, taken: &BTreeMap<String, Profile>) -> String {
+    let base: String = base.trim().chars().take(MAX_NAME_LEN).collect();
+    if !taken.contains_key(&base) {
+        return base;
+    }
+    (2..)
+        .map(|n| {
+            let suffix = format!(" {n}");
+            let head: String = base.chars().take(MAX_NAME_LEN - suffix.chars().count()).collect();
+            format!("{head}{suffix}")
+        })
+        .find(|candidate| !taken.contains_key(candidate))
+        .unwrap_or(base)
 }
 
 /// Tells the interface that a controller has just been hidden or unhidden (or that it failed).
@@ -241,17 +354,22 @@ impl Controllers {
     /// `file` is `None` to save nothing (tests).
     pub fn new(events: Events, file: Option<PathBuf>) -> Self {
         let log = Log::default();
-        let profiles = file.as_deref().map(|f| load_profiles(f, &log)).unwrap_or_default();
+        let (store, migrated) = file.as_deref().map(|f| load_store(f, &log)).unwrap_or_default();
         let settings = file.as_deref().map(|f| load_settings(&settings_path(f), &log)).unwrap_or_default();
         if let Some(language) = settings.language {
             i18n::set_language(language);
         }
         Self {
             inner: Arc::new(Mutex::new(Inner {
-                profiles,
+                controllers: store.controllers,
+                presets: store.presets,
+                games: store.games,
+                auto_preset: None,
+                ui_focused: true,
+                menu_open: false,
                 active: BTreeMap::new(),
                 file,
-                dirty: false,
+                dirty: migrated,
                 settings,
                 settings_dirty: false,
                 hidden: BTreeMap::new(),
@@ -278,7 +396,7 @@ impl Controllers {
 
     /// The configuration that a controller's thread applies live.
     pub fn live_config(&self, id: &str) -> LiveConfig {
-        self.lock().profiles.get(id).map_or_else(|| Profile::default().live(), Profile::live)
+        self.lock().view(id).as_ref().map_or_else(|| Profile::default().live(), Profile::live)
     }
 
     /// Records the measured input report rate, for diagnostics.
@@ -292,20 +410,20 @@ impl Controllers {
     pub fn diagnostics_controllers(&self) -> Vec<ControllerDiag> {
         let inner = self.lock();
         inner
-            .profiles
+            .controllers
             .iter()
-            .map(|(id, profile)| {
+            .map(|(id, entry)| {
                 let active = inner.active.get(id);
                 ControllerDiag {
                     id: id.clone(),
-                    name: profile.name.clone(),
+                    name: entry.name.clone(),
                     connected: active.is_some(),
                     bluetooth: active.is_some_and(|a| a.bluetooth),
                     path: active.map(|a| a.path.clone()),
                     battery: active.and_then(|a| a.battery),
                     charge: active.map_or(Charge::Unknown, |a| a.charge),
                     reports_per_second: active.map_or(0, |a| a.report_rate),
-                    virtual_pad: profile.virtual_pad,
+                    virtual_pad: inner.view(id).is_some_and(|p| p.virtual_pad),
                     hidden: inner.hidden.contains_key(id),
                 }
             })
@@ -324,13 +442,19 @@ impl Controllers {
     pub fn list(&self) -> Vec<ControllerInfo> {
         let inner = self.lock();
         inner
-            .profiles
+            .controllers
             .iter()
-            .map(|(id, profile)| ControllerInfo {
-                id: id.clone(),
-                connected: inner.active.contains_key(id),
-                bluetooth: inner.active.get(id).is_some_and(|a| a.bluetooth),
-                profile: profile.with_rules(),
+            .filter_map(|(id, entry)| {
+                let profile = inner.view(id)?;
+                Some(ControllerInfo {
+                    id: id.clone(),
+                    connected: inner.active.contains_key(id),
+                    bluetooth: inner.active.get(id).is_some_and(|a| a.bluetooth),
+                    profile: profile.with_rules(),
+                    preset: entry.preset.clone(),
+                    manual: entry.manual.clone(),
+                    effective_preset: inner.effective_preset(id).unwrap_or_default().to_string(),
+                })
             })
             .collect()
     }
@@ -347,26 +471,25 @@ impl Controllers {
     pub fn register(&self, id: &str, path: &str, bluetooth: bool, tx: Sender<Command>) -> Profile {
         let profile = {
             let mut inner = self.lock();
-            let count = inner.profiles.len();
             let mut created = false;
-            let profile = inner
-                .profiles
-                .entry(id.to_string())
-                .or_insert_with(|| {
-                    created = true;
-                    Profile {
-                        name: Msg::ControllerName { n: count + 1 }.text(),
-                        lightbar: PALETTE[count % PALETTE.len()],
-                        ..Profile::default()
-                    }
-                })
-                .clone();
+            if !inner.controllers.contains_key(id) {
+                // A new controller starts with a profile of its own, named after it, so that it
+                // behaves as before until the user shares a profile between controllers.
+                let count = inner.controllers.len();
+                let name = Msg::ControllerName { n: count + 1 }.text();
+                let preset = unique_name(&name, &inner.presets);
+                let settings = Profile { lightbar: PALETTE[count % PALETTE.len()], ..Profile::default() };
+                inner.presets.insert(preset.clone(), settings);
+                inner.controllers.insert(id.to_string(), ControllerEntry { name, preset, ..Default::default() });
+                created = true;
+            }
             inner.active.insert(
                 id.to_string(),
                 Active { tx, bluetooth, path: path.to_string(), battery: None, charge: Charge::Unknown, report_rate: 0 },
             );
             inner.dirty |= created;
-            profile
+            // After the insertion: a controller that connects while a game is in the foreground gets its profile.
+            inner.view(id).unwrap_or_default()
         };
         let link = if bluetooth { "Bluetooth" } else { "USB" };
         self.log.info("controller", Msg::LogConnected { id: id.to_string(), link }.text());
@@ -399,15 +522,23 @@ impl Controllers {
     /// Modifies an existing profile. Returns `false` if the controller is unknown.
     pub fn edit(&self, id: &str, f: impl FnOnce(&mut Profile)) -> bool {
         let mut inner = self.lock();
-        let Some(profile) = inner.profiles.get_mut(id) else {
+        let Some(mut profile) = inner.view(id) else {
             return false;
         };
+        let preset = inner.effective_preset(id).unwrap_or_default().to_string();
         let before = profile.clone();
-        f(profile);
+        f(&mut profile);
         profile.name = profile.name.trim().chars().take(MAX_NAME_LEN).collect();
-        let changed = *profile != before;
+        let changed = profile != before;
         let renamed = profile.name != before.name;
-        inner.dirty |= changed;
+        if changed {
+            // The name belongs to the controller; everything else is saved in the profile in force.
+            if let Some(entry) = inner.controllers.get_mut(id) {
+                entry.name = profile.name.clone();
+            }
+            inner.presets.insert(preset, Profile { name: String::new(), ..profile });
+            inner.dirty = true;
+        }
         drop(inner);
         if renamed {
             self.notify();
@@ -424,7 +555,7 @@ impl Controllers {
 
     /// Reapplies the saved profile, for example after a game has changed the light bar.
     pub fn reset_to_profile(&self, id: &str) {
-        let profile = self.lock().profiles.get(id).cloned();
+        let profile = self.lock().view(id);
         if let Some(profile) = profile {
             for cmd in profile.commands(true) {
                 self.send(id, cmd);
@@ -442,13 +573,45 @@ impl Controllers {
 
     /// Shows the overlay: the state of every connected controller, with an optional message.
     pub fn show_overlay(&self, source: &str, message: Option<String>) {
+        self.emit_overlay(source, message, None, None);
+    }
+
+    /// Shows a short message with an icon ("gamepad", "xbox", "power", "motion", "battery-low",
+    /// "layers", "alert", "message").
+    pub fn show_notice(&self, source: &str, icon: &str, message: String) {
+        self.emit_overlay(source, Some(message), Some(icon.to_string()), None);
+    }
+
+    /// Shows the controller menu in the overlay, above the list of controllers. It stays displayed
+    /// until `hide_overlay`.
+    pub fn show_menu(&self, source: &str, menu: MenuView) {
+        self.lock().menu_open = true;
+        self.emit_overlay(source, None, None, Some(menu));
+    }
+
+    /// Hides the overlay at once (the menu has been closed).
+    pub fn hide_overlay(&self) {
+        self.lock().menu_open = false;
+        self.events.emit("overlay-hide", &());
+    }
+
+    /// Whether the controller menu is displayed.
+    pub fn menu_open(&self) -> bool {
+        self.lock().menu_open
+    }
+
+    fn emit_overlay(&self, source: &str, message: Option<String>, icon: Option<String>, menu: Option<MenuView>) {
         let payload = {
             let inner = self.lock();
+            // The overlay is about the controller that asked for it (its menu, its alert, its shortcut).
+            // Without a source (a game profile coming into force, which concerns every controller),
+            // all the connected controllers are shown.
             let controllers = inner
                 .active
                 .iter()
+                .filter(|(id, _)| source.is_empty() || id.as_str() == source)
                 .map(|(id, active)| {
-                    let profile = inner.profiles.get(id).cloned().unwrap_or_default();
+                    let profile = inner.view(id).unwrap_or_default();
                     OverlayController {
                         id: id.clone(),
                         name: if profile.name.is_empty() { id.clone() } else { profile.name },
@@ -461,7 +624,8 @@ impl Controllers {
                     }
                 })
                 .collect();
-            OverlayPayload { message, controllers }
+            let take_focus = menu.is_some() && inner.settings.menu_focus;
+            OverlayPayload { message, icon, menu, take_focus, controllers }
         };
         self.events.emit("overlay", &payload);
     }
@@ -503,10 +667,284 @@ impl Controllers {
                 .into_iter()
                 .filter(|id| {
                     id.eq_ignore_ascii_case(n)
-                        || inner.profiles.get(*id).is_some_and(|p| p.name.eq_ignore_ascii_case(n))
+                        || inner.controllers.get(*id).is_some_and(|c| c.name.eq_ignore_ascii_case(n))
                 })
                 .cloned()
                 .collect(),
+        }
+    }
+
+    // --- Profiles -------------------------------------------------------------------------
+
+    /// The profiles and the game rules.
+    pub fn presets_info(&self) -> PresetsInfo {
+        let inner = self.lock();
+        PresetsInfo { presets: inner.presets.keys().cloned().collect(), games: inner.games.clone() }
+    }
+
+    pub fn games(&self) -> Vec<GameRule> {
+        self.lock().games.clone()
+    }
+
+    /// Sends the profile in force to a controller: light bar, LEDs, triggers, virtual controller,
+    /// rules and the rest.
+    fn apply_profile(&self, id: &str) {
+        self.reset_to_profile(id);
+        self.send(id, Command::ProfileChanged);
+    }
+
+    fn apply_all(&self) {
+        let ids: Vec<String> = self.lock().active.keys().cloned().collect();
+        for id in ids {
+            self.apply_profile(&id);
+        }
+    }
+
+    /// Whether holding PS opens the controller menu.
+    pub fn controller_menu_enabled(&self) -> bool {
+        self.lock().settings.controller_menu
+    }
+
+    pub fn set_menu_focus(&self, enabled: bool) {
+        let mut inner = self.lock();
+        if inner.settings.menu_focus != enabled {
+            inner.settings.menu_focus = enabled;
+            inner.settings_dirty = true;
+        }
+    }
+
+    pub fn set_controller_menu(&self, enabled: bool) {
+        let mut inner = self.lock();
+        if inner.settings.controller_menu != enabled {
+            inner.settings.controller_menu = enabled;
+            inner.settings_dirty = true;
+        }
+    }
+
+    /// What the menu offers for the profile row: the game profiles, and the one in use. `None`
+    /// stands for "Automatic".
+    pub fn menu_profiles(&self, id: &str) -> (Vec<String>, Option<String>) {
+        let inner = self.lock();
+        let names = inner.games.iter().map(|g| g.preset.clone()).collect();
+        let chosen = inner.controllers.get(id).and_then(|e| e.chosen.clone());
+        (names, chosen)
+    }
+
+    /// Moves the profile chosen from the menu to the next (`direction` 1) or previous (-1) one. The
+    /// order is: Automatic, then the game profiles; it wraps around. Returns the new choice.
+    pub fn cycle_chosen(&self, id: &str, direction: i8) -> Option<String> {
+        let new = {
+            let mut inner = self.lock();
+            let options: Vec<Option<String>> =
+                std::iter::once(None).chain(inner.games.iter().map(|g| Some(g.preset.clone()))).collect();
+            let entry = inner.controllers.get_mut(id)?;
+            let position = options.iter().position(|o| *o == entry.chosen).unwrap_or(0);
+            let n = options.len() as i64;
+            let next = (position as i64 + i64::from(direction)).rem_euclid(n) as usize;
+            entry.chosen = options[next].clone();
+            entry.chosen.clone()
+        };
+        self.apply_profile(id);
+        self.notify();
+        new
+    }
+
+    /// Tells whether this application's window is in the foreground. A game profile chosen by hand
+    /// only applies while it is; the controllers are updated when that changes.
+    pub fn set_ui_focus(&self, focused: bool) {
+        let affected: Vec<String> = {
+            let mut inner = self.lock();
+            if inner.ui_focused == focused {
+                return;
+            }
+            inner.ui_focused = focused;
+            inner.controllers.iter().filter(|(_, e)| e.manual.is_some()).map(|(id, _)| id.clone()).collect()
+        };
+        if affected.is_empty() {
+            return;
+        }
+        for id in &affected {
+            self.apply_profile(id);
+        }
+        self.notify();
+    }
+
+    /// Puts a game profile on a controller by hand, to edit it or try it out; an empty name goes
+    /// back to the default profile. This is not saved, only applies while this window is in the
+    /// foreground (see `set_ui_focus`), and a game in the foreground still wins.
+    pub fn set_controller_preset(&self, id: &str, preset: &str) -> Result<(), String> {
+        {
+            let mut inner = self.lock();
+            let is_game_profile = inner.games.iter().any(|g| g.preset == preset);
+            if !preset.is_empty() && !is_game_profile {
+                return Err(Msg::PresetNotFound.text());
+            }
+            let Some(entry) = inner.controllers.get_mut(id) else {
+                return Err(Msg::NotConnected.text());
+            };
+            entry.manual = (!preset.is_empty()).then(|| preset.to_string());
+        }
+        self.apply_profile(id);
+        self.notify();
+        Ok(())
+    }
+
+    /// A profile name as the user typed it: trimmed, not empty, not too long.
+    fn valid_preset_name(name: &str) -> Result<String, String> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > MAX_NAME_LEN {
+            return Err(Msg::PresetNameInvalid.text());
+        }
+        Ok(name.to_string())
+    }
+
+    /// Creates a profile as a copy of `from`. Returns its name.
+    pub fn create_preset(&self, name: &str, from: &str) -> Result<String, String> {
+        let name = Self::valid_preset_name(name)?;
+        {
+            let mut inner = self.lock();
+            let Some(source) = inner.presets.get(from).cloned() else {
+                return Err(Msg::PresetNotFound.text());
+            };
+            if inner.presets.contains_key(&name) {
+                return Err(Msg::PresetExists.text());
+            }
+            inner.presets.insert(name.clone(), source);
+            inner.dirty = true;
+        }
+        self.notify();
+        Ok(name)
+    }
+
+    /// Creates a game profile: a copy of `from` (the settings the user has now), used while the
+    /// program `exe` is in the foreground. Returns the name of the new profile.
+    pub fn create_game_profile(&self, name: &str, exe: &str, from: &str) -> Result<String, String> {
+        let exe = exe.trim();
+        if exe.is_empty() {
+            return Err(Msg::GameExeInvalid.text());
+        }
+        if self.lock().games.iter().any(|g| g.exe.eq_ignore_ascii_case(exe)) {
+            return Err(Msg::GameExists.text());
+        }
+        let name = self.create_preset(name, from)?;
+        let mut rules = self.games();
+        rules.push(GameRule { exe: exe.to_string(), preset: name.clone() });
+        self.set_games(rules);
+        Ok(name)
+    }
+
+    /// Renames a profile everywhere it is used. Returns the new name.
+    pub fn rename_preset(&self, old: &str, new: &str) -> Result<String, String> {
+        let new = Self::valid_preset_name(new)?;
+        {
+            let mut inner = self.lock();
+            if !inner.presets.contains_key(old) {
+                return Err(Msg::PresetNotFound.text());
+            }
+            if new == old {
+                return Ok(new);
+            }
+            if inner.presets.contains_key(&new) {
+                return Err(Msg::PresetExists.text());
+            }
+            if let Some(profile) = inner.presets.remove(old) {
+                inner.presets.insert(new.clone(), profile);
+            }
+            for entry in inner.controllers.values_mut() {
+                if entry.preset == old {
+                    entry.preset = new.clone();
+                }
+                if entry.manual.as_deref() == Some(old) {
+                    entry.manual = Some(new.clone());
+                }
+                if entry.chosen.as_deref() == Some(old) {
+                    entry.chosen = Some(new.clone());
+                }
+            }
+            for rule in inner.games.iter_mut().filter(|r| r.preset == old) {
+                rule.preset = new.clone();
+            }
+            if inner.auto_preset.as_deref() == Some(old) {
+                inner.auto_preset = Some(new.clone());
+            }
+            inner.dirty = true;
+        }
+        self.notify();
+        Ok(new)
+    }
+
+    /// Deletes a game profile together with its rule. The controllers that were showing it go back
+    /// to their default profile. A default profile cannot be deleted.
+    pub fn delete_preset(&self, name: &str) -> Result<(), String> {
+        {
+            let mut inner = self.lock();
+            if !inner.presets.contains_key(name) {
+                return Err(Msg::PresetNotFound.text());
+            }
+            // A controller's default profile is its settings: only game profiles can be deleted.
+            if inner.controllers.values().any(|e| e.preset == name) {
+                return Err(Msg::DefaultProfileProtected.text());
+            }
+            inner.presets.remove(name);
+            for entry in inner.controllers.values_mut() {
+                if entry.manual.as_deref() == Some(name) {
+                    entry.manual = None;
+                }
+                if entry.chosen.as_deref() == Some(name) {
+                    entry.chosen = None;
+                }
+            }
+            inner.games.retain(|r| r.preset != name);
+            if inner.auto_preset.as_deref() == Some(name) {
+                inner.auto_preset = None;
+            }
+            inner.dirty = true;
+        }
+        self.apply_all();
+        self.notify();
+        Ok(())
+    }
+
+    /// Replaces the game rules (cleaned up: see `games::sanitize`).
+    pub fn set_games(&self, rules: Vec<GameRule>) {
+        {
+            let mut inner = self.lock();
+            let known: Vec<&str> = inner.presets.keys().map(String::as_str).collect();
+            let clean = games::sanitize(rules, &known);
+            if clean != inner.games {
+                inner.games = clean;
+                inner.dirty = true;
+            }
+        }
+        self.notify();
+    }
+
+    /// Imposes (or, with `None`, releases) the profile of the game in the foreground on every
+    /// controller. Called by the foreground watcher.
+    pub fn set_auto_preset(&self, preset: Option<String>) {
+        {
+            let mut inner = self.lock();
+            if preset.as_ref().is_some_and(|p| !inner.presets.contains_key(p)) || inner.auto_preset == preset {
+                return;
+            }
+            inner.auto_preset = preset.clone();
+        }
+        // The overlay says which profile is in force now, since the change is made without the user
+        // touching the application. Nothing to show if no controller is connected.
+        let message = match &preset {
+            Some(name) => {
+                self.log.info("profiles", Msg::LogAutoProfile { name: name.clone() }.text());
+                Msg::ProfileApplied { name: name.clone() }.text()
+            }
+            None => {
+                self.log.info("profiles", Msg::LogAutoProfileEnd.text());
+                Msg::ProfileDefault.text()
+            }
+        };
+        self.apply_all();
+        self.notify();
+        if !self.lock().active.is_empty() {
+            self.show_notice("", "layers", message);
         }
     }
 
@@ -549,7 +987,13 @@ impl Controllers {
                 inner.dirty = false;
                 return;
             };
-            let json = match serde_json::to_string_pretty(&inner.profiles) {
+            let store = Store {
+                version: STORE_VERSION,
+                controllers: inner.controllers.clone(),
+                presets: inner.presets.clone(),
+                games: inner.games.clone(),
+            };
+            let json = match serde_json::to_string_pretty(&store) {
                 Ok(j) => j,
                 Err(e) => {
                     eprintln!("profiles: serialization failed ({e})");
@@ -559,6 +1003,7 @@ impl Controllers {
             inner.dirty = false;
             (path, json)
         };
+        backup_profiles(&path, &json);
         if let Err(e) = write_atomic(&path, &json) {
             eprintln!("profiles: write failed ({e})");
             self.log.error("profiles", Msg::LogWriteFailed { reason: e.to_string() }.text());
@@ -632,7 +1077,7 @@ impl Controllers {
                 inner
                     .active
                     .keys()
-                    .filter(|id| inner.profiles.get(*id).is_some_and(|p| p.virtual_pad))
+                    .filter(|id| inner.view(id).is_some_and(|p| p.virtual_pad))
                     .cloned()
                     .collect()
             } else {
@@ -655,7 +1100,7 @@ impl Controllers {
     pub fn release_stale_cloak(&self, id: &str) {
         let path = {
             let inner = self.lock();
-            let wants_xbox = inner.profiles.get(id).is_some_and(|p| p.virtual_pad);
+            let wants_xbox = inner.view(id).is_some_and(|p| p.virtual_pad);
             if !inner.settings.hidhide_auto || wants_xbox || inner.hidden.contains_key(id) {
                 return;
             }
@@ -730,22 +1175,68 @@ fn load_settings(path: &std::path::Path, log: &Log) -> Settings {
     })
 }
 
-fn load_profiles(path: &std::path::Path, log: &Log) -> BTreeMap<String, Profile> {
+/// Reads `profiles.json`. Returns what was read and whether it was converted from format 1 (so that
+/// it gets saved in the new format). An unreadable file is copied aside, never overwritten.
+fn load_store(path: &std::path::Path, log: &Log) -> (Store, bool) {
     let Ok(text) = std::fs::read_to_string(path) else {
-        return BTreeMap::new();
+        return (Store::default(), false);
     };
-    match serde_json::from_str::<BTreeMap<String, Profile>>(&text) {
-        Ok(profiles) => merge_duplicate_ids(profiles),
-        Err(e) => {
-            // Never silently overwrite the user's settings.
-            let backup = path.with_extension("json.bad");
-            eprintln!("profiles unreadable ({e}): copying to {}", backup.display());
-            let reason = e.to_string();
-            log.error("profiles", Msg::LogProfilesUnreadable { reason, backup: backup.display().to_string() }.text());
-            let _ = std::fs::copy(path, backup);
-            BTreeMap::new()
+    let unreadable = |reason: String| {
+        // Never silently overwrite the user's settings.
+        let backup = path.with_extension("json.bad");
+        eprintln!("profiles unreadable ({reason}): copying to {}", backup.display());
+        log.error("profiles", Msg::LogProfilesUnreadable { reason, backup: backup.display().to_string() }.text());
+        let _ = std::fs::copy(path, backup);
+        (Store::default(), false)
+    };
+    let value: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(e) => return unreadable(e.to_string()),
+    };
+    let (mut store, migrated) = if value.get("version").is_some() {
+        match serde_json::from_value::<Store>(value) {
+            Ok(store) => (store, false),
+            Err(e) => return unreadable(e.to_string()),
         }
+    } else {
+        match serde_json::from_value::<BTreeMap<String, Profile>>(value) {
+            Ok(old) => {
+                // Keep the old file: the conversion must be reversible.
+                let backup = path.with_file_name("profiles.v1.json");
+                if !backup.exists() {
+                    let _ = std::fs::copy(path, backup);
+                }
+                (migrate_v1(merge_duplicate_ids(old)), true)
+            }
+            Err(e) => return unreadable(e.to_string()),
+        }
+    };
+    normalise(&mut store);
+    (store, migrated)
+}
+
+/// Format 1 kept a complete profile per controller. Each one becomes a profile named after its
+/// controller, which that controller keeps using: nothing changes for the user.
+fn migrate_v1(old: BTreeMap<String, Profile>) -> Store {
+    let mut store = Store { version: STORE_VERSION, ..Store::default() };
+    for (id, profile) in old {
+        let name = if profile.name.trim().is_empty() { id.clone() } else { profile.name.clone() };
+        let preset = unique_name(&name, &store.presets);
+        store.presets.insert(preset.clone(), Profile { name: String::new(), ..profile });
+        store.controllers.insert(id, ControllerEntry { name, preset, ..Default::default() });
     }
+    store
+}
+
+/// Makes a store that was read coherent: every controller has a profile that exists, and the game
+/// rules only point to existing profiles.
+fn normalise(store: &mut Store) {
+    store.version = STORE_VERSION;
+    for entry in store.controllers.values() {
+        store.presets.entry(entry.preset.clone()).or_default();
+    }
+    let known: Vec<&str> = store.presets.keys().map(String::as_str).collect();
+    store.games = games::sanitize(std::mem::take(&mut store.games), &known);
 }
 
 /// Older versions could register the same controller under two identifiers: its MAC address
@@ -769,6 +1260,48 @@ fn merge_duplicate_ids(profiles: BTreeMap<String, Profile>) -> BTreeMap<String, 
     merged
 }
 
+/// How many automatic backups of the profiles are kept, and the minimum time between two of them.
+const BACKUPS_KEPT: usize = 10;
+const BACKUP_INTERVAL_SECS: u64 = 15 * 60;
+
+/// Keeps copies of the profiles file in a `backups` folder next to it. Before a new version of the
+/// file is written, the one on disk is copied there, unless another copy is less than
+/// `BACKUP_INTERVAL_SECS` old (the file is rewritten at every edit: one copy per edit would drown the
+/// useful ones). The newest `BACKUPS_KEPT` copies are kept. A failure here never prevents saving.
+fn backup_profiles(path: &std::path::Path, new_contents: &str) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let _ = rotate_backups(path, new_contents, now);
+}
+
+fn rotate_backups(path: &std::path::Path, new_contents: &str, now: u64) -> std::io::Result<()> {
+    let Ok(existing) = std::fs::read_to_string(path) else {
+        return Ok(()); // nothing to keep yet
+    };
+    if existing == new_contents {
+        return Ok(());
+    }
+    let dir = path.with_file_name("backups");
+    std::fs::create_dir_all(&dir)?;
+    // Names are `profiles-<seconds since 1970>.json`: sorted by name, they are sorted by date.
+    let mut names: Vec<String> = std::fs::read_dir(&dir)?
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.starts_with("profiles-") && n.ends_with(".json"))
+        .collect();
+    names.sort();
+    let newest = names.last().and_then(|n| n.trim_start_matches("profiles-").trim_end_matches(".json").parse::<u64>().ok());
+    if newest.is_some_and(|t| now.saturating_sub(t) < BACKUP_INTERVAL_SECS) {
+        return Ok(());
+    }
+    std::fs::write(dir.join(format!("profiles-{now}.json")), existing)?;
+    names.push(format!("profiles-{now}.json"));
+    names.sort();
+    while names.len() > BACKUPS_KEPT {
+        let oldest = names.remove(0);
+        let _ = std::fs::remove_file(dir.join(oldest));
+    }
+    Ok(())
+}
+
 fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -776,6 +1309,38 @@ fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, path)
+}
+
+/// How often the foreground program is looked at.
+const WATCH_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Starts the thread that follows the program in the foreground and applies the profile of the
+/// game that is played (see `games`). It does nothing, not even a system call, while there are no
+/// game rules.
+pub fn start_game_watcher(controllers: Controllers) {
+    let spawned = std::thread::Builder::new().name("game-watcher".into()).spawn(move || {
+        let mut watcher = games::Watcher::default();
+        loop {
+            std::thread::sleep(WATCH_INTERVAL);
+            let rules = controllers.games();
+            if rules.is_empty() && watcher.current().is_none() {
+                continue;
+            }
+            // The menu takes the focus: what is in the foreground says nothing about the game while it is open.
+            if controllers.menu_open() {
+                continue;
+            }
+            let change = watcher
+                .forget_unknown(&rules)
+                .or_else(|| watcher.update(&games::foreground(), &rules, std::time::Instant::now()));
+            if let Some(preset) = change {
+                controllers.set_auto_preset(preset);
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("game watcher: {e}");
+    }
 }
 
 /// Starts the thread that detects plugged-in controllers and starts one thread per controller.
@@ -1104,7 +1669,7 @@ mod tests {
     }
 
     #[test]
-    fn overlay_lists_connected_controllers_with_their_battery_and_mode() {
+    fn overlay_shows_the_controller_that_asked_with_its_battery_and_mode() {
         let (events, log) = capturing_events();
         let c = Controllers::new(events, None);
         let _a = connect(&c, "AA");
@@ -1114,21 +1679,50 @@ mod tests {
         log.lock().unwrap().clear(); // ignore the "controllers-changed" events of the connections
 
         c.show_overlay("AA", Some("Native mode".into()));
+        c.show_overlay("BB", None);
 
         let log = log.lock().unwrap();
-        assert_eq!(log.len(), 1);
+        assert_eq!(log.len(), 2);
         let (name, payload) = &log[0];
         assert_eq!(name, "overlay");
         assert_eq!(payload["message"], "Native mode");
         let list = payload["controllers"].as_array().unwrap();
-        assert_eq!(list.len(), 2);
+        assert_eq!(list.len(), 1, "only the controller that asked");
+        assert_eq!(list[0]["id"], "AA");
         assert_eq!(list[0]["percent"], 85);
         assert_eq!(list[0]["charge"], "charging");
         assert_eq!(list[0]["source"], true);
         assert_eq!(list[0]["xbox_mode"], false);
-        assert_eq!(list[1]["source"], false);
-        assert_eq!(list[1]["xbox_mode"], true);
-        assert!(list[1]["percent"].is_null());
+
+        let other = log[1].1["controllers"].as_array().unwrap();
+        assert_eq!((other.len(), other[0]["id"].as_str()), (1, Some("BB")));
+        assert_eq!(other[0]["xbox_mode"], true);
+        assert!(other[0]["percent"].is_null());
+    }
+
+    #[test]
+    fn a_notice_without_a_source_concerns_every_connected_controller() {
+        let (events, log) = capturing_events();
+        let c = Controllers::new(events, None);
+        let _a = connect(&c, "AA");
+        let _b = connect(&c, "BB");
+        log.lock().unwrap().clear();
+        c.show_notice("", "layers", "Profile: Racing".into());
+        let log = log.lock().unwrap();
+        assert_eq!(log[0].1["controllers"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn the_menu_only_shows_the_controller_that_opened_it() {
+        let (events, log) = capturing_events();
+        let c = Controllers::new(events, None);
+        let _a = connect(&c, "AA");
+        let _b = connect(&c, "BB");
+        log.lock().unwrap().clear();
+        c.show_menu("BB", MenuView { rows: vec![], cursor: 0 });
+        let log = log.lock().unwrap();
+        let list = log[0].1["controllers"].as_array().unwrap();
+        assert_eq!((list.len(), list[0]["id"].as_str()), (1, Some("BB")));
     }
 
     #[test]
@@ -1547,4 +2141,547 @@ mod tests {
         assert_eq!(p.name, "Old");
         assert_eq!(p.lightbar, PALETTE[0]);
     }
+
+    // --- Game profiles --------------------------------------------------------------------
+
+    /// A controller with a game profile "Racing" for `game.exe`.
+    fn with_racing_profile() -> (Controllers, Receiver<Command>) {
+        let c = Controllers::new(Events::none(), None);
+        let rx = connect(&c, "AA");
+        c.create_game_profile("Racing", "game.exe", "Controller 1").unwrap();
+        (c, rx)
+    }
+
+    #[test]
+    fn a_new_controller_starts_with_a_default_profile_of_its_own() {
+        let c = Controllers::new(Events::none(), None);
+        let _a = connect(&c, "AA");
+        let _b = connect(&c, "BB");
+        let list = c.list();
+        assert_eq!((list[0].preset.as_str(), list[1].preset.as_str()), ("Controller 1", "Controller 2"));
+        assert_eq!(list[0].effective_preset, "Controller 1");
+        assert_eq!(list[0].manual, None);
+    }
+
+    #[test]
+    fn a_game_profile_starts_as_a_copy_of_the_current_settings() {
+        let c = Controllers::new(Events::none(), None);
+        let _a = connect(&c, "AA");
+        c.edit("AA", |p| p.lightbar = [1, 2, 3]);
+        c.create_game_profile("Racing", "game.exe", "Controller 1").unwrap();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        assert_eq!(c.live_config("AA").fixed_color, [1, 2, 3]);
+        assert_eq!(c.games(), [GameRule { exe: "game.exe".into(), preset: "Racing".into() }]);
+    }
+
+    #[test]
+    fn editing_a_game_profile_leaves_the_default_profile_alone() {
+        let (c, _rx) = with_racing_profile();
+        let default_color = c.live_config("AA").fixed_color;
+        c.set_controller_preset("AA", "Racing").unwrap();
+        c.edit("AA", |p| {
+            p.lightbar = [9, 9, 9];
+            p.name = "Salon".into();
+        });
+        assert_eq!(c.live_config("AA").fixed_color, [9, 9, 9]);
+        c.set_controller_preset("AA", "").unwrap();
+        assert_eq!(c.live_config("AA").fixed_color, default_color, "back to the default settings, untouched");
+        assert_eq!(c.list()[0].profile.name, "Salon", "the name belongs to the controller");
+        c.set_controller_preset("AA", "Racing").unwrap();
+        assert_eq!(c.live_config("AA").fixed_color, [9, 9, 9]);
+    }
+
+    #[test]
+    fn choosing_a_game_profile_by_hand_is_not_saved() {
+        let file = temp_file("manual");
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let _a = connect(&c, "AA");
+        c.create_game_profile("Racing", "game.exe", "Controller 1").unwrap();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        assert_eq!(c.list()[0].manual.as_deref(), Some("Racing"));
+        c.flush();
+        let reloaded = Controllers::new(Events::none(), Some(file.clone()));
+        assert_eq!(reloaded.list()[0].effective_preset, "Controller 1");
+        assert_eq!(reloaded.games().len(), 1, "the game profile itself is saved");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn a_game_profile_chosen_by_hand_does_not_follow_the_user_out_of_the_window() {
+        let (c, rx) = with_racing_profile();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        assert_eq!(c.list()[0].effective_preset, "Racing");
+
+        let _ = rx.try_iter().count();
+        c.set_ui_focus(false); // the user goes to the game
+        assert_eq!(c.list()[0].effective_preset, "Controller 1", "the default profile applies again");
+        assert_eq!(c.list()[0].manual.as_deref(), Some("Racing"), "the choice is kept, only suspended");
+        assert!(rx.try_iter().any(|cmd| cmd == Command::ProfileChanged), "the controller is updated");
+
+        c.set_ui_focus(true); // back in the window
+        assert_eq!(c.list()[0].effective_preset, "Racing");
+    }
+
+    #[test]
+    fn the_game_in_the_foreground_applies_whether_or_not_a_profile_was_chosen_by_hand() {
+        let (c, _rx) = with_racing_profile();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        c.set_ui_focus(false);
+        c.set_auto_preset(Some("Racing".into()));
+        assert_eq!(c.list()[0].effective_preset, "Racing");
+        c.set_auto_preset(None);
+        assert_eq!(c.list()[0].effective_preset, "Controller 1", "leaving the game: default, not the hand-picked one");
+    }
+
+    #[test]
+    fn losing_focus_without_a_hand_picked_profile_touches_nothing() {
+        let (c, rx) = with_racing_profile();
+        let _ = rx.try_iter().count();
+        c.set_ui_focus(false);
+        c.set_ui_focus(true);
+        assert_eq!(rx.try_iter().count(), 0, "no command is sent when there is nothing to change");
+    }
+
+    // --- Controller menu ----------------------------------------------------------------
+
+    #[test]
+    fn the_profile_chosen_from_the_menu_wins_over_the_game_and_survives_leaving_it() {
+        let (c, _rx) = with_racing_profile();
+        c.create_game_profile("Shooter", "shoot.exe", "Controller 1").unwrap();
+        assert_eq!(c.cycle_chosen("AA", 1).as_deref(), Some("Racing"));
+        assert_eq!(c.list()[0].effective_preset, "Racing");
+
+        c.set_auto_preset(Some("Shooter".into()));
+        assert_eq!(c.list()[0].effective_preset, "Racing", "the menu's choice beats the game in the foreground");
+        c.set_auto_preset(None);
+        c.set_ui_focus(false);
+        assert_eq!(c.list()[0].effective_preset, "Racing", "and it does not depend on this window's focus");
+    }
+
+    #[test]
+    fn the_menu_cycles_through_automatic_and_the_game_profiles_in_both_directions() {
+        let (c, _rx) = with_racing_profile();
+        c.create_game_profile("Shooter", "shoot.exe", "Controller 1").unwrap();
+        assert_eq!(c.cycle_chosen("AA", 1).as_deref(), Some("Racing"));
+        assert_eq!(c.cycle_chosen("AA", 1).as_deref(), Some("Shooter"));
+        assert_eq!(c.cycle_chosen("AA", 1), None, "after the last profile: automatic again");
+        assert_eq!(c.cycle_chosen("AA", -1).as_deref(), Some("Shooter"), "and backwards from automatic");
+        assert_eq!(c.cycle_chosen("ZZ", 1), None, "an unknown controller is ignored");
+    }
+
+    #[test]
+    fn choosing_automatic_gives_back_the_game_and_the_default_profile() {
+        let (c, _rx) = with_racing_profile();
+        c.cycle_chosen("AA", 1);
+        c.cycle_chosen("AA", 1); // back to automatic
+        assert_eq!(c.menu_profiles("AA").1, None);
+        assert_eq!(c.list()[0].effective_preset, "Controller 1");
+        c.set_auto_preset(Some("Racing".into()));
+        assert_eq!(c.list()[0].effective_preset, "Racing");
+    }
+
+    #[test]
+    fn choosing_a_profile_from_the_menu_sends_it_to_the_controller() {
+        let (c, rx) = with_racing_profile();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        c.edit("AA", |p| p.lightbar = [200, 100, 50]);
+        c.set_controller_preset("AA", "").unwrap();
+        let _ = rx.try_iter().count();
+        c.cycle_chosen("AA", 1);
+        let cmds: Vec<_> = rx.try_iter().collect();
+        assert!(cmds.contains(&Command::Lightbar(200, 100, 50)), "{cmds:?}");
+        assert!(cmds.contains(&Command::ProfileChanged));
+    }
+
+    #[test]
+    fn the_menu_choice_is_not_saved_and_follows_renames_and_deletions() {
+        let file = temp_file("chosen");
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let _a = connect(&c, "AA");
+        c.create_game_profile("Racing", "game.exe", "Controller 1").unwrap();
+        c.cycle_chosen("AA", 1);
+        c.rename_preset("Racing", "Cars").unwrap();
+        assert_eq!(c.menu_profiles("AA").1.as_deref(), Some("Cars"));
+        c.flush();
+        let reloaded = Controllers::new(Events::none(), Some(file.clone()));
+        assert_eq!(reloaded.menu_profiles("AA").1, None, "not remembered across restarts");
+        c.delete_preset("Cars").unwrap();
+        assert_eq!(c.menu_profiles("AA").1, None);
+        assert_eq!(c.list()[0].effective_preset, "Controller 1");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn the_controller_menu_is_on_by_default_and_can_be_turned_off_and_saved() {
+        let file = temp_file("menu-setting");
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        assert!(c.controller_menu_enabled());
+        c.set_controller_menu(false);
+        c.flush();
+        assert!(!Controllers::new(Events::none(), Some(file.clone())).controller_menu_enabled());
+        let old: Settings = serde_json::from_str(r#"{"hidhide_auto":true}"#).unwrap();
+        assert!(old.controller_menu, "old settings files get the menu");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn the_menu_takes_the_focus_unless_the_setting_is_off() {
+        let (events, log) = capturing_events();
+        let c = Controllers::new(events, None);
+        let _a = connect(&c, "AA");
+        let menu = || MenuView { rows: vec![], cursor: 0 };
+        log.lock().unwrap().clear();
+
+        c.show_menu("AA", menu());
+        c.show_overlay("AA", Some("hello".into()));
+        c.set_menu_focus(false);
+        c.show_menu("AA", menu());
+
+        let flags: Vec<bool> = log.lock().unwrap().iter().filter(|(n, _)| n == "overlay").map(|(_, p)| p["take_focus"].as_bool().unwrap()).collect();
+        assert_eq!(flags, [true, false, false], "only the menu takes the focus, and only if allowed");
+    }
+
+    #[test]
+    fn the_menu_is_known_to_be_open_from_its_display_to_its_hiding() {
+        let c = Controllers::new(Events::none(), None);
+        let _a = connect(&c, "AA");
+        assert!(!c.menu_open());
+        c.show_menu("AA", MenuView { rows: vec![], cursor: 0 });
+        assert!(c.menu_open());
+        c.show_overlay("AA", Some("a message".into()));
+        assert!(c.menu_open(), "a message shown meanwhile does not close it");
+        c.hide_overlay();
+        assert!(!c.menu_open());
+    }
+
+    #[test]
+    fn the_menu_is_shown_in_the_overlay_and_hidden_on_request() {
+        let (events, log) = capturing_events();
+        let c = Controllers::new(events, None);
+        let _a = connect(&c, "AA");
+        log.lock().unwrap().clear();
+        let menu = MenuView { rows: vec![], cursor: 0 };
+        c.show_menu("AA", menu);
+        c.hide_overlay();
+        let log = log.lock().unwrap();
+        assert_eq!(log[0].0, "overlay");
+        assert_eq!(log[0].1["menu"]["cursor"], 0);
+        assert!(log[0].1["message"].is_null());
+        assert_eq!(log[1].0, "overlay-hide");
+    }
+
+    #[test]
+    fn a_game_only_applies_to_the_controllers_that_are_connected() {
+        let (c, _rx) = with_racing_profile();
+        let _b = connect(&c, "BB");
+        c.unregister("BB", "path-BB");
+        c.set_auto_preset(Some("Racing".into()));
+        let list = c.list();
+        assert_eq!(list[0].effective_preset, "Racing");
+        assert_eq!(list[1].effective_preset, "Controller 2", "a disconnected controller keeps its own settings");
+    }
+
+    #[test]
+    fn the_overlay_announces_the_profile_when_a_game_comes_and_goes() {
+        let (events, log) = capturing_events();
+        let c = Controllers::new(events, None);
+        let _a = connect(&c, "AA");
+        c.create_game_profile("Racing", "game.exe", "Controller 1").unwrap();
+        log.lock().unwrap().clear();
+
+        c.set_auto_preset(Some("Racing".into()));
+        c.set_auto_preset(Some("Racing".into())); // no change: nothing more to announce
+        c.set_auto_preset(None);
+
+        let messages: Vec<String> = log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| name == "overlay")
+            .map(|(_, payload)| payload["message"].as_str().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(messages, ["Profile: Racing", "Default profile"]);
+    }
+
+    #[test]
+    fn nothing_is_announced_when_no_controller_is_connected() {
+        let (events, log) = capturing_events();
+        let c = Controllers::new(events, None);
+        let _a = connect(&c, "AA");
+        c.create_game_profile("Racing", "game.exe", "Controller 1").unwrap();
+        c.unregister("AA", "path-AA");
+        log.lock().unwrap().clear();
+        c.set_auto_preset(Some("Racing".into()));
+        assert!(log.lock().unwrap().iter().all(|(name, _)| name != "overlay"));
+    }
+
+    #[test]
+    fn a_controller_that_connects_during_a_game_gets_the_profile_of_the_game() {
+        let (c, _rx) = with_racing_profile();
+        c.set_auto_preset(Some("Racing".into()));
+        let (tx, rx) = mpsc::channel();
+        let profile = c.register("CC", "path-CC", false, tx);
+        assert_eq!(c.list()[1].effective_preset, "Racing");
+        assert_eq!(profile.name, "Controller 2");
+        drop(rx);
+    }
+
+    #[test]
+    fn only_game_profiles_can_be_chosen() {
+        let (c, _rx) = with_racing_profile();
+        assert!(c.set_controller_preset("AA", "Controller 1").is_err(), "a default profile is not a choice");
+        assert!(c.set_controller_preset("AA", "Nope").is_err());
+        assert!(c.set_controller_preset("ZZ", "Racing").is_err());
+        assert_eq!(c.list()[0].manual, None);
+    }
+
+    #[test]
+    fn choosing_a_game_profile_sends_it_to_the_controller() {
+        let (c, rx) = with_racing_profile();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        c.edit("AA", |p| p.lightbar = [255, 0, 0]);
+        c.set_controller_preset("AA", "").unwrap();
+        let _ = rx.try_iter().count();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        let cmds: Vec<_> = rx.try_iter().collect();
+        assert!(cmds.contains(&Command::Lightbar(255, 0, 0)), "{cmds:?}");
+        assert!(cmds.contains(&Command::ProfileChanged));
+    }
+
+    #[test]
+    fn a_game_in_the_foreground_wins_over_the_default_and_over_the_choice_made_by_hand() {
+        let (c, _rx) = with_racing_profile();
+        c.create_game_profile("Shooter", "shoot.exe", "Controller 1").unwrap();
+        c.set_controller_preset("AA", "Shooter").unwrap();
+        c.set_auto_preset(Some("Racing".into()));
+        assert_eq!(c.list()[0].effective_preset, "Racing");
+        c.set_auto_preset(None);
+        assert_eq!(c.list()[0].effective_preset, "Shooter", "the choice made by hand is still there");
+        c.set_controller_preset("AA", "").unwrap();
+        assert_eq!(c.list()[0].effective_preset, "Controller 1");
+    }
+
+    #[test]
+    fn a_game_applies_to_every_controller_and_releasing_it_restores_each_default() {
+        let (c, _rx) = with_racing_profile();
+        let _b = connect(&c, "BB");
+        c.set_auto_preset(Some("Racing".into()));
+        assert!(c.list().iter().all(|i| i.effective_preset == "Racing"));
+        c.set_auto_preset(None);
+        let list = c.list();
+        assert_eq!((list[0].effective_preset.as_str(), list[1].effective_preset.as_str()), ("Controller 1", "Controller 2"));
+    }
+
+    #[test]
+    fn edits_made_during_a_game_change_the_profile_of_the_game() {
+        let (c, _rx) = with_racing_profile();
+        c.set_auto_preset(Some("Racing".into()));
+        c.edit("AA", |p| p.lightbar = [5, 5, 5]);
+        c.set_auto_preset(None);
+        assert_ne!(c.live_config("AA").fixed_color, [5, 5, 5]);
+        c.set_auto_preset(Some("Racing".into()));
+        assert_eq!(c.live_config("AA").fixed_color, [5, 5, 5]);
+    }
+
+    #[test]
+    fn the_automatic_profile_is_ignored_if_it_does_not_exist_and_is_not_saved() {
+        let file = temp_file("auto");
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let _a = connect(&c, "AA");
+        c.set_auto_preset(Some("Nope".into()));
+        assert_eq!(c.list()[0].effective_preset, "Controller 1");
+        c.create_game_profile("Racing", "game.exe", "Controller 1").unwrap();
+        c.set_auto_preset(Some("Racing".into()));
+        c.flush();
+        let reloaded = Controllers::new(Events::none(), Some(file.clone()));
+        assert_eq!(reloaded.list()[0].effective_preset, "Controller 1", "a game is not remembered across restarts");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn a_game_profile_needs_a_program_that_has_none_yet_and_a_valid_name() {
+        let (c, _rx) = with_racing_profile();
+        assert!(c.create_game_profile("Other", "  ", "Controller 1").is_err(), "no program");
+        assert!(c.create_game_profile("Other", "GAME.EXE", "Controller 1").is_err(), "program already used");
+        assert!(c.create_game_profile("Racing", "other.exe", "Controller 1").is_err(), "name already used");
+        assert!(c.create_game_profile("   ", "other.exe", "Controller 1").is_err());
+        assert!(c.create_game_profile("Other", "other.exe", "Missing").is_err());
+        assert_eq!(c.games().len(), 1, "nothing was left behind by the failures");
+        assert_eq!(c.presets_info().presets.len(), 2);
+    }
+
+    #[test]
+    fn renaming_a_game_profile_updates_its_rule_and_the_controllers_showing_it() {
+        let (c, _rx) = with_racing_profile();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        assert_eq!(c.rename_preset("Racing", "Cars").unwrap(), "Cars");
+        assert_eq!(c.games()[0].preset, "Cars");
+        assert_eq!(c.list()[0].manual.as_deref(), Some("Cars"));
+        assert!(c.rename_preset("Cars", "Controller 1").is_err());
+        assert!(c.rename_preset("Missing", "X").is_err());
+    }
+
+    #[test]
+    fn deleting_a_game_profile_removes_its_rule_and_the_controllers_go_back_to_their_default() {
+        let (c, _rx) = with_racing_profile();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        c.delete_preset("Racing").unwrap();
+        assert!(c.games().is_empty());
+        assert_eq!(c.list()[0].manual, None);
+        assert_eq!(c.list()[0].effective_preset, "Controller 1");
+        assert!(c.delete_preset("Missing").is_err());
+    }
+
+    #[test]
+    fn a_default_profile_cannot_be_deleted() {
+        let (c, _rx) = with_racing_profile();
+        assert!(c.delete_preset("Controller 1").is_err());
+        assert_eq!(c.list()[0].profile.lightbar, c.live_config("AA").fixed_color);
+    }
+
+    #[test]
+    fn game_rules_only_keep_existing_profiles() {
+        let c = Controllers::new(Events::none(), None);
+        let _a = connect(&c, "AA");
+        c.set_games(vec![
+            GameRule { exe: "good.exe".into(), preset: "Controller 1".into() },
+            GameRule { exe: "bad.exe".into(), preset: "Missing".into() },
+        ]);
+        assert_eq!(c.games().len(), 1);
+    }
+
+    #[test]
+    fn game_profiles_survive_a_restart() {
+        let file = temp_file("presets");
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let _a = connect(&c, "AA");
+        c.create_game_profile("Racing", "game.exe", "Controller 1").unwrap();
+        c.set_controller_preset("AA", "Racing").unwrap();
+        c.edit("AA", |p| p.lightbar = [4, 5, 6]);
+        c.flush();
+
+        let reloaded = Controllers::new(Events::none(), Some(file.clone()));
+        assert_eq!(reloaded.games(), c.games());
+        assert_eq!(reloaded.list()[0].effective_preset, "Controller 1", "starts on the default profile");
+        reloaded.set_controller_preset("AA", "Racing").unwrap();
+        assert_eq!(reloaded.live_config("AA").fixed_color, [4, 5, 6]);
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn profiles_saved_by_version_1_are_converted_and_the_old_file_is_kept() {
+        let file = temp_file("migrate");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let old = r#"{
+            "AA:AA:AA:AA:AA:AA": {"name": "Salon", "lightbar": [1, 2, 3], "virtual_pad": true},
+            "BB:BB:BB:BB:BB:BB": {"name": "Salon", "lightbar": [4, 5, 6]}
+        }"#;
+        std::fs::write(&file, old).unwrap();
+
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let list = c.list();
+        assert_eq!(list.len(), 2);
+        assert_eq!((list[0].profile.name.as_str(), list[0].profile.lightbar, list[0].profile.virtual_pad), ("Salon", [1, 2, 3], true));
+        assert_eq!((list[1].profile.name.as_str(), list[1].profile.lightbar), ("Salon", [4, 5, 6]));
+        assert_ne!(list[0].preset, list[1].preset, "two controllers with the same name get two profiles");
+
+        assert_eq!(std::fs::read_to_string(file.with_file_name("profiles.v1.json")).unwrap(), old, "the old file is kept");
+        c.flush();
+        assert!(std::fs::read_to_string(&file).unwrap().contains("\"version\""), "saved in the new format");
+        let reloaded = Controllers::new(Events::none(), Some(file.clone()));
+        assert_eq!(reloaded.list()[1].profile.lightbar, [4, 5, 6]);
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn a_store_whose_controller_points_to_a_missing_profile_is_repaired() {
+        let file = temp_file("repair");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &file,
+            r#"{"version":2,"controllers":{"AA":{"name":"Pad","preset":"Gone"}},"presets":{},"games":[{"exe":"g.exe","preset":"Nowhere"}]}"#,
+        )
+        .unwrap();
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        assert_eq!(c.list()[0].effective_preset, "Gone");
+        assert!(c.games().is_empty());
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    // --- Automatic backups --------------------------------------------------------------
+
+    fn backup_dir(tag: &str) -> PathBuf {
+        let file = temp_file(tag);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        file
+    }
+
+    fn backups_of(file: &std::path::Path) -> Vec<String> {
+        let dir = file.with_file_name("backups");
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .map(|d| d.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect())
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn the_previous_version_of_the_file_is_kept_before_it_is_replaced() {
+        let file = backup_dir("backup-basic");
+        std::fs::write(&file, "old").unwrap();
+        rotate_backups(&file, "new", 1_000_000).unwrap();
+        assert_eq!(backups_of(&file), ["profiles-1000000.json"]);
+        assert_eq!(std::fs::read_to_string(file.with_file_name("backups").join("profiles-1000000.json")).unwrap(), "old");
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn nothing_is_kept_when_there_is_no_file_yet_or_nothing_changed() {
+        let file = backup_dir("backup-none");
+        rotate_backups(&file, "first", 1_000_000).unwrap();
+        assert!(backups_of(&file).is_empty());
+        std::fs::write(&file, "same").unwrap();
+        rotate_backups(&file, "same", 1_000_000).unwrap();
+        assert!(backups_of(&file).is_empty());
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn backups_are_spaced_out_and_the_oldest_are_dropped() {
+        let file = backup_dir("backup-rotate");
+        std::fs::write(&file, "v").unwrap();
+        rotate_backups(&file, "w", 1_000_000).unwrap();
+        rotate_backups(&file, "x", 1_000_000 + 60).unwrap();
+        assert_eq!(backups_of(&file).len(), 1, "a second edit a minute later does not add a copy");
+        for i in 1..=15u64 {
+            rotate_backups(&file, "y", 1_000_000 + i * (BACKUP_INTERVAL_SECS + 1)).unwrap();
+        }
+        let names = backups_of(&file);
+        assert_eq!(names.len(), BACKUPS_KEPT);
+        assert_eq!(names.last().unwrap(), &format!("profiles-{}.json", 1_000_000 + 15 * (BACKUP_INTERVAL_SECS + 1)));
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn saving_profiles_keeps_a_backup_of_the_previous_file() {
+        let file = temp_file("backup-flush");
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let _a = connect(&c, "AA");
+        c.flush();
+        c.edit("AA", |p| p.lightbar = [1, 2, 3]);
+        c.flush();
+        assert_eq!(backups_of(&file).len(), 1);
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn unique_names_never_exceed_the_limit() {
+        let mut taken = BTreeMap::new();
+        let long = "x".repeat(MAX_NAME_LEN);
+        taken.insert(long.clone(), Profile::default());
+        let name = unique_name(&long, &taken);
+        assert_ne!(name, long);
+        assert!(name.chars().count() <= MAX_NAME_LEN && name.ends_with(" 2"));
+    }
+
 }

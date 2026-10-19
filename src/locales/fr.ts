@@ -285,6 +285,8 @@ export const fr: Record<Key, string> = {
   "settings.autostart": "Lancer au démarrage de Windows",
   "settings.lowBattery": "Alerte de batterie faible",
   "settings.haptics": "Vibration de confirmation",
+  "settings.menu": "Maintenir le bouton PS pour ouvrir le menu de la manette",
+  "settings.menuFocus": "Le menu prend le focus, pour que les jeux ne réagissent plus à la manette",
   "settings.hint":
     "La croix de la fenêtre réduit l'application dans la zone de notification : les manettes virtuelles continuent de fonctionner.",
   "settings.quit": "Quitter l'application",
@@ -315,6 +317,26 @@ export const fr: Record<Key, string> = {
   "components.done": "{name} installé.",
   "components.doneRestart": "{name} installé. Redémarrer l'application pour l'utiliser ; Windows peut aussi demander un redémarrage.",
   "components.openedPage": "winget n'est pas disponible : la page de téléchargement a été ouverte dans le navigateur.",
+
+  // --- Profils de jeu -------------------------------------------------------------------
+  "nav.profiles": "Profils de jeu",
+  "head.profile": "Profil",
+  "preset.default": "Par défaut",
+  "profiles.title": "Profils de jeu",
+  "profiles.list": "Vos profils de jeu",
+  "profiles.hint":
+    "Vos réglages s'appliquent par défaut. Un profil de jeu a ses propres réglages (éclairage, gâchettes, règles, sticks, mouvement) et s'utilise automatiquement tant que son programme est au premier plan. Pour en régler un, choisissez-le dans le sélecteur Profil d'une manette : il s'applique tant que cette fenêtre est au premier plan, ce qui permet de l'essayer avant de lancer le jeu.",
+  "profiles.edit": "Modifier",
+  "profiles.delete": "Supprimer",
+  "profiles.confirmDelete": "Supprimer le profil de jeu « {name} » ?",
+  "profiles.noGames": "Aucun profil de jeu pour l'instant.",
+  "profiles.add": "Ajouter un profil de jeu",
+  "profiles.addHint":
+    "Le nouveau profil démarre comme une copie de vos réglages actuels. Seul le nom du programme au premier plan est lu ; rien n'est injecté dans les jeux.",
+  "profiles.addRunning": "Choisir une application ouverte…",
+  "profiles.exePlaceholder": "Nom du programme, par exemple jeu.exe",
+  "profiles.namePlaceholder": "Nom du profil (facultatif)",
+  "profiles.create": "Créer le profil de jeu",
 
   // --- Mises à jour -----------------------------------------------------------------------
   "updates.title": "Mises à jour",

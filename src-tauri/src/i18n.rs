@@ -137,6 +137,27 @@ pub enum Msg {
 
     // Updates
     NoUpdateAvailable,
+
+    // Controller menu
+    MenuMode,
+    MenuNative,
+    MenuProfile,
+    MenuAutomatic,
+    MenuClose,
+
+    // Profiles
+    PresetNameInvalid,
+    GameExeInvalid,
+    GameExists,
+    DefaultProfileProtected,
+    PresetExists,
+    PresetNotFound,
+    /// Overlay message when a game profile comes into force.
+    ProfileApplied { name: String },
+    /// Overlay message when the controllers go back to their default profile.
+    ProfileDefault,
+    LogAutoProfile { name: String },
+    LogAutoProfileEnd,
 }
 
 fn pick(lang: Lang, en: String, fr: String) -> String {
@@ -162,9 +183,9 @@ impl Msg {
 
             ModeXbox360 => p("Xbox 360 mode".into(), "Mode Xbox 360".into()),
             ModeNative => p("Native mode".into(), "Mode natif".into()),
-            PoweringOff => p("Powering off the controller…".into(), "Extinction de la manette…".into()),
-            MotionEnabled => p("Gyroscope and touchpad: enabled".into(), "Gyroscope et pavé tactile : activés".into()),
-            MotionDisabled => p("Gyroscope and touchpad: disabled".into(), "Gyroscope et pavé tactile : désactivés".into()),
+            PoweringOff => p("Powering off…".into(), "Extinction…".into()),
+            MotionEnabled => p("Motion controls on".into(), "Mouvement activé".into()),
+            MotionDisabled => p("Motion controls off".into(), "Mouvement désactivé".into()),
             BatteryLow { from, to } => p(format!("Low battery ({from}–{to}%)"), format!("Batterie faible ({from}–{to} %)")),
             BatteryCritical { from, to } => {
                 p(format!("Critical battery ({from}–{to}%)"), format!("Batterie critique ({from}–{to} %)"))
@@ -299,6 +320,33 @@ impl Msg {
             ),
             UnknownComponent => p("Unknown component".into(), "Composant inconnu".into()),
             NoUpdateAvailable => p("No update is available".into(), "Aucune mise à jour disponible".into()),
+
+            MenuMode => p("Mode".into(), "Mode".into()),
+            MenuNative => p("Native".into(), "Natif".into()),
+            MenuProfile => p("Profile".into(), "Profil".into()),
+            MenuAutomatic => p("Automatic".into(), "Automatique".into()),
+            MenuClose => p("Close".into(), "Fermer".into()),
+            PresetNameInvalid => p(
+                "A profile name must have 1 to 32 characters".into(),
+                "Le nom d'un profil doit comporter de 1 à 32 caractères".into(),
+            ),
+            GameExeInvalid => p("Enter the name of the program".into(), "Indiquez le nom du programme".into()),
+            GameExists => p("This program already has a profile".into(), "Ce programme a déjà un profil".into()),
+            DefaultProfileProtected => p(
+                "The default profile cannot be deleted".into(),
+                "Le profil par défaut ne peut pas être supprimé".into(),
+            ),
+            PresetExists => p("A profile with this name already exists".into(), "Un profil porte déjà ce nom".into()),
+            PresetNotFound => p("This profile does not exist".into(), "Ce profil n'existe pas".into()),
+            ProfileApplied { name } => p(format!("Profile: {name}"), format!("Profil : {name}")),
+            ProfileDefault => p("Default profile".into(), "Profil par défaut".into()),
+            LogAutoProfile { name } => {
+                p(format!("game detected: profile “{name}” in force"), format!("jeu détecté : profil « {name} » appliqué"))
+            }
+            LogAutoProfileEnd => p(
+                "game left: controllers back to their own profile".into(),
+                "jeu quitté : les manettes reprennent leur profil".into(),
+            ),
         }
     }
 }

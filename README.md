@@ -17,6 +17,14 @@ A companion application for the Sony DualSense controller on Windows, built with
   physical controller optionally hidden from games through [HidHide](https://github.com/nefarius/HidHide).
 - **Rules**: remap buttons, combinations and stick directions to Xbox buttons, keyboard keys and mouse
   actions; gestures (short press, hold, double press, while held), macros, turbo, latching and layers.
+- **Game profiles**: your usual settings are the default; a game profile has its own settings and is used
+  automatically while that game is in the foreground (only the name of the foreground program is read; nothing
+  is injected into games).
+- **Controller menu**: hold the PS button to open a menu in the overlay, driven with the controller itself
+  (D-pad and Cross): switch between native and Xbox 360 mode, change the profile, and see the controller's
+  battery. While it is open, the game and the rules receive nothing, and the menu takes the focus so that most
+  games stop reacting to the controller (this can be turned off in the settings). The overlay only ever shows
+  the controller that asked for it.
 - **Analog bindings**: a stick can drive the mouse, the scroll wheel or keys.
 - **Gyroscope and touchpad** as a mouse or as the right stick.
 - **Overlay** with the battery level and the mode of every controller, a **notification-area icon**,

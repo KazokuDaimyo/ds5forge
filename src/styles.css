@@ -475,6 +475,24 @@ select option { background: var(--surface); color: var(--text); }
 
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
+/* Profile selector in the controller header, and the profiles page. */
+.preset-box { display: inline-flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--muted); }
+.preset-box select { max-width: 220px; }
+.presets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.preset-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.preset-row input[type="text"] {
+  flex: 1;
+  min-width: 160px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.86rem;
+}
+.preset-row input[type="text"]:focus { outline: none; border-color: var(--accent); }
+.preset-row .program { flex: 1; min-width: 160px; color: var(--muted); font-size: 0.86rem; }
+
 /* A dot on the Settings entry when an update is available. */
 .nav-item.has-update { position: relative; }
 .nav-item.has-update::after {

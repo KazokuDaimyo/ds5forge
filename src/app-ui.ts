@@ -9,6 +9,8 @@ export function initAppUi() {
   const autostart = $<HTMLInputElement>("autostart");
   const lowBattery = $<HTMLInputElement>("opt-low-battery");
   const haptics = $<HTMLInputElement>("opt-haptics");
+  const menu = $<HTMLInputElement>("opt-menu");
+  const menuFocus = $<HTMLInputElement>("opt-menu-focus");
   const message = $("app-msg");
   const defaultMessage = message.textContent ?? "";
 
@@ -47,10 +49,18 @@ export function initAppUi() {
   });
 
   // Low-battery alert and confirmation vibration.
-  invoke<{ low_battery_alert: boolean; haptic_feedback: boolean }>("get_settings").then((s) => {
+  invoke<{ low_battery_alert: boolean; haptic_feedback: boolean; controller_menu: boolean; menu_focus: boolean }>(
+    "get_settings",
+  ).then((s) => {
     lowBattery.checked = s.low_battery_alert;
     haptics.checked = s.haptic_feedback;
+    menu.checked = s.controller_menu;
+    menuFocus.checked = s.menu_focus;
+    menuFocus.disabled = !s.controller_menu;
   });
+  menu.addEventListener("change", () => (menuFocus.disabled = !menu.checked));
+  menuFocus.addEventListener("change", () => invoke("set_menu_focus", { enabled: menuFocus.checked }));
+  menu.addEventListener("change", () => invoke("set_controller_menu", { enabled: menu.checked }));
   const saveNotifications = () =>
     invoke("set_notifications", { lowBatteryAlert: lowBattery.checked, hapticFeedback: haptics.checked });
   lowBattery.addEventListener("change", saveNotifications);

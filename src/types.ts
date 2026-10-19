@@ -157,7 +157,25 @@ export interface ControllerInfo {
   id: string;
   connected: boolean;
   bluetooth: boolean;
+  /** The controller's name and the settings of the profile in force. */
   profile: Profile;
+  /** The controller's default profile. */
+  preset: string;
+  /** The game profile chosen by hand on this controller, if any. */
+  manual: string | null;
+  /** The profile in force: the game in the foreground's, else the one chosen by hand, else `preset`. */
+  effective_preset: string;
+}
+
+/** "While this program is in the foreground, use this profile" (src-tauri/src/games.rs). */
+export interface GameRule {
+  exe: string;
+  preset: string;
+}
+
+export interface PresetsInfo {
+  presets: string[];
+  games: GameRule[];
 }
 
 export interface StateEvent {

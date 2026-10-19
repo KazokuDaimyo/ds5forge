@@ -2,11 +2,20 @@
 
 import { $ } from "./ui-common";
 
-export type View = "overview" | "controls" | "rules" | "triggers" | "lighting" | "motion" | "settings" | "diagnostic";
+export type View =
+  | "overview"
+  | "controls"
+  | "rules"
+  | "triggers"
+  | "lighting"
+  | "motion"
+  | "profiles"
+  | "settings"
+  | "diagnostic";
 
 /** The views that concern the selected controller; the others are global. */
 const CONTROLLER_VIEWS: View[] = ["overview", "controls", "rules", "triggers", "lighting", "motion"];
-const ALL_VIEWS: View[] = [...CONTROLLER_VIEWS, "settings", "diagnostic"];
+const ALL_VIEWS: View[] = [...CONTROLLER_VIEWS, "profiles", "settings", "diagnostic"];
 const STORAGE_KEY = "ds5forge.view";
 
 export const isControllerView = (v: View) => CONTROLLER_VIEWS.includes(v);

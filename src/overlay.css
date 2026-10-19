@@ -12,6 +12,10 @@
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
 
+/* The `hidden` attribute must always win: elements that set their own `display` (flex rows, pills…)
+   would otherwise stay visible after being hidden. */
+[hidden] { display: none !important; }
+
 /* The window is transparent: only the card is visible. */
 html,
 body {
@@ -21,13 +25,15 @@ body {
 }
 
 .card {
-  margin: 10px;
+  /* The margin is wider than the shadow: the window would otherwise cut it off and leave a faint
+     dark frame, visible over a bright background. */
+  margin: 30px;
   padding: 16px;
   border-radius: 22px;
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
   animation: pop 0.16s ease-out;
 }
 
@@ -36,13 +42,57 @@ body {
   to { opacity: 1; transform: none; }
 }
 
+/* An icon in a rounded tile: the same everywhere (notice, menu rows). */
+.tile {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+.tile.bad {
+  background: color-mix(in srgb, var(--bad) 20%, transparent);
+  color: var(--bad);
+}
+.tile .icon { display: block; }
+.icon.brand { display: block; }
+
+/* A short message: its icon, then a few words. */
 .message {
-  margin: 2px 4px 14px;
-  font-size: 1.12rem;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 2px 4px;
+  font-size: 1.08rem;
   font-weight: 650;
   letter-spacing: -0.01em;
-  text-align: center;
 }
+
+/* The controller menu */
+.menu { margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 16px;
+  color: var(--muted);
+}
+.menu-row .tile { background: var(--surface-2); color: var(--muted); }
+.menu-row .arrow { flex: none; display: inline-grid; color: var(--muted); opacity: 0.5; }
+.menu-value { flex: 1; text-align: center; font-size: 1.02rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.menu-row:not(:has(.arrow)) .menu-value { text-align: left; padding-left: 4px; }
+.menu-row.selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.menu-row.selected .tile { background: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--accent); }
+.menu-row.selected .arrow { color: var(--accent); opacity: 1; }
 
 .list {
   list-style: none;
@@ -90,8 +140,22 @@ body {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+.level { display: inline-flex; align-items: center; gap: 3px; }
 .level.low { color: var(--bad); }
-.mode { font-size: 0.8rem; color: var(--muted); }
+.level .icon { display: block; }
+
+/* Connection and mode, as icons. */
+.chips { display: flex; gap: 6px; }
+.chip {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 22px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.chip .icon { display: block; }
 
 /* Gauge with 10 segments (battery.ts): it takes the full width under the name. */
 .info .gauge {

@@ -18,6 +18,14 @@ Un compagnon pour la manette Sony DualSense sous Windows, développé en Rust av
 - **Règles** : réattribuer des boutons, des combinaisons et des directions de stick à des boutons Xbox, des
   touches du clavier et des actions de souris ; gestes (appui bref, maintien, double appui, tant que tenu),
   macros, turbo, verrouillage et couches.
+- **Profils de jeu** : vos réglages habituels sont le profil par défaut ; un profil de jeu a ses propres réglages
+  et s'applique automatiquement tant que ce jeu est au premier plan (seul le nom du programme au premier plan est
+  lu ; rien n'est injecté dans les jeux).
+- **Menu de la manette** : maintenir le bouton PS ouvre un menu dans l'overlay, piloté avec la manette elle-même
+  (croix directionnelle et Croix) : passer du mode natif au mode Xbox 360, changer de profil, et voir la batterie
+  de la manette. Tant qu'il est ouvert, le jeu et les règles ne reçoivent rien, et le menu prend le focus pour que
+  la plupart des jeux ne réagissent plus à la manette (désactivable dans les réglages). L'overlay ne montre
+  jamais que la manette qui l'a demandé.
 - **Liaisons analogiques** : un stick peut piloter la souris, la molette ou des touches.
 - **Gyroscope et pavé tactile** en souris ou en stick droit.
 - **Overlay** avec la batterie et le mode de chaque manette, **icône dans la zone de notification**,

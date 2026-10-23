@@ -14,6 +14,7 @@ interface OverlayController {
   charge: Charge;
   xbox_mode: boolean;
   source: boolean;
+  pad_color: string | null;
 }
 
 // Mirror of menu::MenuView (src-tauri/src/menu.rs).
@@ -78,6 +79,7 @@ function renderItem(c: OverlayController): HTMLLIElement {
   // The same illustration as in the app, at rest, with the controller's light bar.
   const art = createControllerArt();
   art.update({ lx: 128, ly: 128, rx: 128, ry: 128, l2: 0, r2: 0, buttons: 0 });
+  art.setColorway(c.pad_color);
   const thumb = element("div", "thumb");
   thumb.appendChild(art.el);
 
@@ -142,6 +144,16 @@ function renderMessage(message: string | null, iconName: string | null) {
   messageEl.replaceChildren(tile, element("span", "message-text", message));
 }
 
+/**
+ * The window is hidden, not destroyed: what it showed last would be visible for an instant when it is
+ * shown again, before the new content arrives. The card is therefore hidden when the window is, and
+ * only shown again once the new content has been drawn.
+ */
+function clear() {
+  card.style.visibility = "hidden";
+  card.dataset.menu = "";
+}
+
 function render(payload: OverlayPayload) {
   renderMessage(payload.message, payload.icon);
   renderMenu(payload.menu);
@@ -154,10 +166,12 @@ function render(payload: OverlayPayload) {
     card.style.animation = "";
   }
   card.dataset.menu = payload.menu ? "open" : "";
+  card.style.visibility = "";
 }
 
 applyTranslations();
 listen<OverlayPayload>("overlay", ({ payload }) => render(payload));
+listen("overlay-clear", clear);
 
 // The overlay window lives as long as the app: when the language changes, it reloads to follow it.
 listen("language-changed", () => window.location.reload());

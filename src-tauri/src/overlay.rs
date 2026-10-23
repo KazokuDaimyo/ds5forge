@@ -85,6 +85,7 @@ pub fn show(app: &AppHandle, payload: Value) {
         std::thread::sleep(VISIBLE_FOR);
         if state.generation.load(Ordering::SeqCst) == generation {
             let _ = window.hide();
+            clear(&window);
         }
     });
 }
@@ -95,8 +96,15 @@ pub fn hide(app: &AppHandle) {
         let state = app.state::<OverlayState>().inner().clone();
         state.generation.fetch_add(1, Ordering::SeqCst);
         let _ = window.hide();
+        clear(&window);
         release_focus(&window, &state);
     }
+}
+
+/// Tells the page to forget what it was showing. The window is only hidden, not destroyed: without this
+/// the next display would start with the previous content for the instant it takes the new one to arrive.
+fn clear(window: &tauri::WebviewWindow) {
+    let _ = window.emit("overlay-clear", ());
 }
 
 /// Gives the focus to the overlay window while the controller menu is open. The game, no longer in

@@ -10,6 +10,8 @@ A companion application for the Sony DualSense controller on Windows, built with
 ## Features
 
 - **Native use**: the controller works as a regular DualSense, with its own settings saved per controller. Everything below is optional.
+- **Controller colour**: the illustration can take the colour of your DualSense (White, Midnight Black, Cosmic Red,
+  Nova Pink…), chosen per controller under the picture. The values are approximations of the official colours.
 - **Live view** of the controller: buttons, sticks, triggers, touchpad, battery and connection type.
 - **Adaptive triggers** (resistance, weapon click, vibration), **rumble**, **light bar** (fixed colour,
   following the battery or following the mode) and **player LEDs**.
@@ -20,11 +22,12 @@ A companion application for the Sony DualSense controller on Windows, built with
 - **Game profiles**: your usual settings are the default; a game profile has its own settings and is used
   automatically while that game is in the foreground (only the name of the foreground program is read; nothing
   is injected into games).
-- **Controller menu**: hold the PS button to open a menu in the overlay, driven with the controller itself
-  (D-pad and Cross): switch between native and Xbox 360 mode, change the profile, and see the controller's
-  battery. While it is open, the game and the rules receive nothing, and the menu takes the focus so that most
-  games stop reacting to the controller (this can be turned off in the settings). The overlay only ever shows
-  the controller that asked for it.
+- **Controller menu**: a menu in the overlay, driven with the controller itself (D-pad and Cross): switch between
+  native and Xbox 360 mode, change the profile, and see the controller's battery. It is opened by the "Open the
+  controller menu" action of a rule; the default rules open it by holding the PS button, and deleting that rule
+  removes the shortcut. While the menu is open, the game and the rules receive nothing, and the menu takes the
+  focus so that most games stop reacting to the controller (this can be turned off in the settings). The overlay
+  only ever shows the controller that asked for it.
 - **Analog bindings**: a stick can drive the mouse, the scroll wheel or keys.
 - **Gyroscope and touchpad** as a mouse or as the right stick.
 - **Overlay** with the battery level and the mode of every controller, a **notification-area icon**,

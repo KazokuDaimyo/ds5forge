@@ -25,6 +25,12 @@ pub fn list_controllers(controllers: State<Controllers>) -> Vec<ControllerInfo> 
     controllers.list()
 }
 
+/// Chooses the colour the controller is drawn in (a colourway identifier; `null` for the default).
+#[tauri::command]
+pub fn set_controller_color(controllers: State<Controllers>, id: String, color: Option<String>) {
+    controllers.set_controller_color(&id, color);
+}
+
 #[tauri::command]
 pub fn rename_controller(controllers: State<Controllers>, id: String, name: String) {
     controllers.edit(&id, |p| p.name = name);
@@ -148,12 +154,6 @@ pub fn list_keys() -> Vec<KeyInfo> {
     keys::list()
 }
 
-/// Shows the overlay on demand (preview from the interface).
-#[tauri::command]
-pub fn preview_overlay(controllers: State<Controllers>, id: String) {
-    controllers.show_overlay(&id, None);
-}
-
 #[tauri::command]
 pub fn get_settings(controllers: State<Controllers>) -> Settings {
     controllers.settings()
@@ -176,12 +176,6 @@ pub async fn hidhide_status(controllers: State<'_, Controllers>) -> Result<Cloak
 #[tauri::command]
 pub fn set_menu_focus(controllers: State<Controllers>, enabled: bool) {
     controllers.set_menu_focus(enabled);
-}
-
-/// Turns the controller menu (long press on PS) on or off.
-#[tauri::command]
-pub fn set_controller_menu(controllers: State<Controllers>, enabled: bool) {
-    controllers.set_controller_menu(enabled);
 }
 
 #[tauri::command]

@@ -160,6 +160,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_controllers,
             commands::rename_controller,
+            commands::set_controller_color,
             commands::set_lightbar,
             commands::set_lightbar_mode,
             commands::set_player_leds,
@@ -180,10 +181,8 @@ pub fn run() {
             commands::rename_preset,
             commands::delete_preset,
             commands::list_running_apps,
-            commands::preview_overlay,
             commands::get_settings,
             commands::set_notifications,
-            commands::set_controller_menu,
             commands::set_menu_focus,
             commands::set_language,
             commands::set_hidhide_auto,

@@ -74,6 +74,7 @@
             <div class="grid">
               <section class="card span-2 hero">
                 <div id="controller-art"></div>
+                <div id="color-swatches" class="swatches" role="radiogroup" data-i18n-attr="aria-label:pad.color"></div>
                 <p class="hint hero-hint" data-i18n="overview.hint"></p>
               </section>
 
@@ -121,7 +122,6 @@
                 <datalist id="rule-layers"></datalist>
                 <div class="row rules-actions">
                   <select id="rule-template" data-i18n-attr="aria-label:rules.addRule"></select>
-                  <button id="overlay-preview" type="button" data-i18n="rules.preview"></button>
                   <button id="rules-reset" type="button" class="danger" data-i18n="rules.deleteAll"></button>
                 </div>
                 <p class="hint" data-i18n-html="rules.layersHint"></p>
@@ -258,10 +258,6 @@
               <label class="switch">
                 <input id="opt-haptics" type="checkbox" />
                 <span data-i18n="settings.haptics"></span>
-              </label>
-              <label class="switch">
-                <input id="opt-menu" type="checkbox" />
-                <span data-i18n="settings.menu"></span>
               </label>
               <label class="switch">
                 <input id="opt-menu-focus" type="checkbox" />

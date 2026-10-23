@@ -151,6 +151,8 @@ pub enum AppAction {
     PowerOff,
     /// Shows the overlay.
     ShowOverlay,
+    /// Opens the controller menu (the same one as holding PS).
+    OpenMenu,
     /// Enables or disables the gyroscope and the touchpad.
     ToggleMotion,
     /// Shows a text in the overlay.
@@ -386,6 +388,7 @@ pub fn rules_from_shortcuts(list: &[Shortcut]) -> Vec<Rule> {
                 shortcuts::Action::PowerOff => AppAction::PowerOff,
                 shortcuts::Action::ShowOverlay => AppAction::ShowOverlay,
                 shortcuts::Action::ToggleMotion => AppAction::ToggleMotion,
+                shortcuts::Action::OpenMenu => AppAction::OpenMenu,
             };
             Rule {
                 inputs: vec![s.button.into()],
@@ -395,6 +398,38 @@ pub fn rules_from_shortcuts(list: &[Shortcut]) -> Vec<Rule> {
             }
         })
         .collect()
+}
+
+/// The rule that opens the controller menu by holding PS. It is one of the default rules.
+pub fn menu_rule() -> Rule {
+    Rule {
+        inputs: vec![Input::Ps],
+        gesture: Gesture::Hold,
+        steps: vec![Step::App { action: AppAction::OpenMenu }],
+        ..Rule::default()
+    }
+}
+
+/// Adds the rule that opens the menu to rules saved before the menu existed (holding PS was then
+/// built in, and is now only this rule). Nothing is added if a rule already opens the menu. The
+/// default "PS press → show the overlay" becomes a short press, as it does for a new profile, so that
+/// the overlay does not flash just before the menu opens.
+pub fn with_menu_rule(mut rules: Vec<Rule>) -> Vec<Rule> {
+    let opens_menu = |r: &Rule| r.steps.iter().any(|s| matches!(s, Step::App { action: AppAction::OpenMenu }));
+    if rules.iter().any(opens_menu) {
+        return rules;
+    }
+    for r in &mut rules {
+        let default_overlay_rule = r.inputs == [Input::Ps]
+            && r.gesture == Gesture::Press
+            && r.layer.is_none()
+            && r.steps == [Step::App { action: AppAction::ShowOverlay }];
+        if default_overlay_rule {
+            r.gesture = Gesture::Tap;
+        }
+    }
+    rules.push(menu_rule());
+    rules
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1138,6 +1173,15 @@ mod tests {
     // --- gestures ----------------------------------------------------------------------------------
 
     #[test]
+    fn the_menu_can_be_opened_by_a_rule() {
+        let action: AppAction = serde_json::from_str(r#"{"type":"open_menu"}"#).unwrap();
+        assert_eq!(action, AppAction::OpenMenu);
+        let (mut e, t0) = engine(vec![rule(Input::Share, Gesture::Hold, vec![app(AppAction::OpenMenu)])]);
+        e.update(&snap(btn::SHARE), t0);
+        assert_eq!(e.update(&snap(btn::SHARE), t0 + MS(800)), [Effect::App(AppAction::OpenMenu)]);
+    }
+
+    #[test]
     fn press_fires_once_when_the_button_goes_down() {
         let (mut e, t0) = engine(vec![rule(Input::Ps, Gesture::Press, vec![app(AppAction::ShowOverlay)])]);
         assert_eq!(e.update(&snap(btn::PS), t0), [Effect::App(AppAction::ShowOverlay)]);
@@ -1710,11 +1754,41 @@ mod tests {
     #[test]
     fn the_default_shortcuts_become_equivalent_rules() {
         let rules = rules_from_shortcuts(&shortcuts::default_shortcuts());
-        assert_eq!(rules.len(), 3);
-        assert_eq!(rules[0].gesture, Gesture::Tap, "Mute partage son bouton avec un maintien");
+        assert_eq!(rules.len(), 4);
+        assert_eq!(rules[0].gesture, Gesture::Tap, "Mute shares its button with a hold");
         assert_eq!(rules[1].gesture, Gesture::Hold);
-        assert_eq!(rules[2].gesture, Gesture::Press, "PS n'a pas de maintien : agit tout de suite");
+        assert_eq!(rules[2].gesture, Gesture::Tap, "PS shares its button with a hold too");
         assert_eq!(rules[2].steps, [app(AppAction::ShowOverlay)]);
+        assert_eq!(rules[3], menu_rule(), "holding PS opens the menu: it is a rule like the others");
+    }
+
+    #[test]
+    fn rules_saved_before_the_menu_get_the_menu_rule_once() {
+        let saved = rules_from_shortcuts(&[
+            shortcuts::Shortcut { button: shortcuts::Button::Ps, gesture: shortcuts::Gesture::Press, action: shortcuts::Action::ShowOverlay },
+            shortcuts::Shortcut { button: shortcuts::Button::Mute, gesture: shortcuts::Gesture::Press, action: shortcuts::Action::ToggleVirtualPad },
+        ]);
+        assert_eq!(saved[0].gesture, Gesture::Press);
+
+        let updated = with_menu_rule(saved.clone());
+        assert_eq!(updated.len(), 3);
+        assert_eq!(updated[0].gesture, Gesture::Tap, "the overlay no longer flashes before the menu");
+        assert_eq!(updated[2], menu_rule());
+        assert_eq!(updated[1], saved[1], "other rules are untouched");
+
+        assert_eq!(with_menu_rule(updated.clone()), updated, "a rule that opens the menu is enough: nothing more is added");
+        let own = vec![rule(Input::Share, Gesture::Hold, vec![app(AppAction::OpenMenu)])];
+        assert_eq!(with_menu_rule(own.clone()), own, "a menu rule of the user's own is respected");
+    }
+
+    #[test]
+    fn the_overlay_rule_is_only_made_a_short_press_when_it_is_the_default_one() {
+        let custom = rule(Input::Ps, Gesture::Press, vec![tap("A")]);
+        let updated = with_menu_rule(vec![custom.clone()]);
+        assert_eq!(updated[0], custom);
+        let mut layered = rule(Input::Ps, Gesture::Press, vec![app(AppAction::ShowOverlay)]);
+        layered.layer = Some("Shift".into());
+        assert_eq!(with_menu_rule(vec![layered.clone()])[0], layered);
     }
 
     #[test]
@@ -1724,8 +1798,12 @@ mod tests {
         assert_eq!(e.update(&snap(0), t0 + MS(200)), [Effect::App(AppAction::ToggleVirtualPad)]);
         e.update(&snap(btn::MUTE), t0 + MS(1000));
         assert_eq!(e.update(&snap(btn::MUTE), t0 + MS(1800)), [Effect::App(AppAction::PowerOff)]);
-        assert_eq!(e.update(&snap(btn::PS), t0 + MS(3000)), [Effect::App(AppAction::ShowOverlay)]);
-        assert_eq!(e.consumed(), btn::MUTE | btn::PS);
+        // PS: a short press shows the overlay, a long one opens the menu.
+        e.update(&snap(btn::PS), t0 + MS(3000));
+        assert_eq!(e.update(&snap(0), t0 + MS(3100)), [Effect::App(AppAction::ShowOverlay)]);
+        e.update(&snap(btn::PS), t0 + MS(4000));
+        assert_eq!(e.update(&snap(btn::PS), t0 + MS(4800)), [Effect::App(AppAction::OpenMenu)]);
+        assert_ne!(e.consumed() & btn::PS, 0, "PS is taken by the rule while it is held");
     }
 
     #[test]
@@ -1746,7 +1824,7 @@ mod tests {
         assert_eq!(clean.steps, [tap("A"), Step::Wait { ms: MAX_WAIT_MS }]);
         assert_eq!(clean.repeat, Repeat::Times { count: MAX_REPEAT_TIMES, interval_ms: MIN_INTERVAL_MS });
         assert_eq!(clean.ms, Some(50));
-        assert_eq!(clean.layer, None, "une couche vide n'est pas une couche");
+        assert_eq!(clean.layer, None, "an empty layer name is not a layer");
     }
 
     #[test]

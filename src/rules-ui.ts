@@ -63,7 +63,7 @@ const OUTPUT_KINDS = labels<Output["kind"]>("output", ["key", "mouse", "pad"]);
 
 const STEP_TYPES = labels<Step["type"]>("step", ["tap", "hold", "down", "up", "wait", "wheel", "mouse_move", "app"]);
 const ACTION_TYPES = labels<AppAction["type"]>("action", [
-  "toggle_virtual_pad", "show_overlay", "message", "layer", "lightbar", "rumble", "toggle_motion", "power_off",
+  "toggle_virtual_pad", "show_overlay", "open_menu", "message", "layer", "lightbar", "rumble", "toggle_motion", "power_off",
 ]);
 const LAYER_MODES = labels<LayerMode>("layerMode", ["hold", "toggle", "on", "off"]);
 

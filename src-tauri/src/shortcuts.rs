@@ -89,6 +89,8 @@ pub enum Action {
     ShowOverlay,
     /// Enables or disables the gyroscope and the touchpad (until the next restart).
     ToggleMotion,
+    /// Opens the controller menu.
+    OpenMenu,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +106,7 @@ pub fn default_shortcuts() -> Vec<Shortcut> {
         Shortcut { button: Button::Mute, gesture: Gesture::Press, action: Action::ToggleVirtualPad },
         Shortcut { button: Button::Mute, gesture: Gesture::Hold, action: Action::PowerOff },
         Shortcut { button: Button::Ps, gesture: Gesture::Press, action: Action::ShowOverlay },
+        Shortcut { button: Button::Ps, gesture: Gesture::Hold, action: Action::OpenMenu },
     ]
 }
 
@@ -130,7 +133,8 @@ mod tests {
     #[test]
     fn the_defaults_keep_their_mute_and_ps_bindings() {
         let defaults = default_shortcuts();
-        assert_eq!(defaults.len(), 3);
+        assert_eq!(defaults.len(), 4);
+        assert!(defaults.iter().any(|s| s.button == Button::Ps && s.gesture == Gesture::Hold && s.action == Action::OpenMenu));
         assert!(defaults.iter().any(|s| s.button == Button::Ps && s.action == Action::ShowOverlay));
     }
 }

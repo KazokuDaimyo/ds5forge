@@ -43,6 +43,7 @@ export const fr: Record<Key, string> = {
 
   // --- Aperçu ---------------------------------------------------------------------------------
   "overview.hint": "Les boutons, les sticks et les gâchettes réagissent en direct.",
+  "pad.color": "Couleur de la manette",
   "pad.title": "Manette virtuelle",
   "pad.switch": "Émuler une manette Xbox 360",
   "pad.hint":
@@ -76,7 +77,6 @@ export const fr: Record<Key, string> = {
   "rules.intro":
     "<b>Quand</b> une entrée (un bouton, une combinaison de boutons ou une direction d'un stick) fait un geste, <b>alors</b> exécuter une suite d'étapes (touche du clavier, clic, pause, action de l'application, bouton Xbox en mode Xbox 360…). En mode Xbox 360, une entrée qui a une règle n'est plus transmise à la manette virtuelle, sauf si « Garder aussi l'entrée d'origine » est coché.",
   "rules.addRule": "Ajouter une règle",
-  "rules.preview": "Tester l'overlay",
   "rules.deleteAll": "Tout supprimer",
   "rules.layersHint":
     "<b>Couches</b> : une règle peut appartenir à une couche (par exemple « Maj »). Elle n'agit alors que tant que la couche est active, et remplace les règles de base sur les mêmes entrées. Une règle « Tant que tenu » avec l'action « Changer de couche » fait d'un bouton une touche Maj.",
@@ -132,6 +132,7 @@ export const fr: Record<Key, string> = {
   "step.app": "Action de l'application",
   "action.toggle_virtual_pad": "Basculer natif / Xbox 360",
   "action.show_overlay": "Afficher l'overlay",
+  "action.open_menu": "Ouvrir le menu de la manette",
   "action.message": "Afficher un message",
   "action.layer": "Changer de couche",
   "action.lightbar": "Changer la couleur de la lightbar",
@@ -285,7 +286,6 @@ export const fr: Record<Key, string> = {
   "settings.autostart": "Lancer au démarrage de Windows",
   "settings.lowBattery": "Alerte de batterie faible",
   "settings.haptics": "Vibration de confirmation",
-  "settings.menu": "Maintenir le bouton PS pour ouvrir le menu de la manette",
   "settings.menuFocus": "Le menu prend le focus, pour que les jeux ne réagissent plus à la manette",
   "settings.hint":
     "La croix de la fenêtre réduit l'application dans la zone de notification : les manettes virtuelles continuent de fonctionner.",

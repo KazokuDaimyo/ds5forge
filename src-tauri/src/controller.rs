@@ -7,7 +7,7 @@ use crate::desktop;
 use crate::haptics::{self, Haptics, Pattern};
 use crate::i18n::Msg;
 use crate::lightbar::{self, LightbarMode};
-use crate::menu::{self, HoldDetector, Menu, MenuRow, MenuView, Row};
+use crate::menu::{self, Menu, MenuRow, MenuView, Row};
 use crate::manager::{Controllers, LiveConfig};
 use crate::motion::Motion;
 use crate::mouse;
@@ -455,8 +455,6 @@ struct Session {
     rumble_until: Option<Instant>,
     /// The controller menu, while it is open (see `menu`).
     menu: Option<Menu>,
-    /// Detects the long press on PS that opens the menu.
-    ps_hold: HoldDetector,
     /// After the menu closes, nothing is passed on until every button has been released: a button
     /// still held (the one that closed the menu) would otherwise count as a new press in the game.
     suppress_input: bool,
@@ -494,7 +492,6 @@ impl Session {
             snapshot: Snapshot::default(),
             rumble_until: None,
             menu: None,
-            ps_hold: HoldDetector::default(),
             suppress_input: false,
             hide_pending: false,
             last_buttons: 0,
@@ -625,12 +622,10 @@ impl Session {
         self.hide_pending = true;
     }
 
-    /// Opens the menu on a long press of PS, and carries out what the user asks while it is open.
+    /// Carries out what the user asks while the menu is open. (It is opened by the "open the menu"
+    /// action of a rule: by default, holding PS.)
     fn update_menu(&mut self, buttons: u32, now: Instant, ctx: &DeviceCtx, self_tx: &Sender<Command>) {
         let Some(menu) = self.menu.as_mut() else {
-            if self.ps_hold.update(buttons & btn::PS != 0, now) && ctx.controllers.controller_menu_enabled() {
-                self.open_menu(now, ctx);
-            }
             return;
         };
         let actions = menu.update(buttons, now);
@@ -754,6 +749,12 @@ impl Session {
                 if let Err(error) = controllers.power_off(&ctx.id) {
                     buzz(&mut self.haptics, Pattern::Long);
                     controllers.show_notice(&ctx.id, "alert", error);
+                }
+            }
+
+            AppAction::OpenMenu => {
+                if self.menu.is_none() {
+                    self.open_menu(now, ctx);
                 }
             }
 

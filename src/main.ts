@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { initAppUi } from "./app-ui";
+import { COLORWAYS, colorwayOf } from "./colorways";
 import { createControllerArt, type ArtState } from "./controller-art";
 import { chargeMark, createGauge, rangeText, type Charge } from "./battery";
 import { initComponentsUi } from "./components-ui";
@@ -216,6 +217,7 @@ async function refresh() {
   renderTabs();
   renderStatus();
   renderPresetSelect();
+  renderColor();
   // The settings shown belong to the profile in force: they are read again when it changes (the
   // user chose another profile, or a game came to the foreground).
   if (selectionChanged || (current() && current()?.effective_preset !== loadedPreset)) loadProfile();
@@ -231,6 +233,7 @@ function select(id: string) {
   renderTabs();
   renderStatus();
   renderPresetSelect();
+  renderColor();
   loadProfile();
   resetLive();
 }
@@ -241,6 +244,37 @@ const art = createControllerArt();
 $("controller-art").appendChild(art.el);
 
 const showState = (s: ArtState) => art.update(s);
+
+// --- Controller colour ---------------------------------------------------------------------
+// The illustration takes the colour of the controller in your hands: one of the colours of the DualSense.
+
+const swatchesEl = $("color-swatches");
+
+function renderColor() {
+  const c = current();
+  const active = colorwayOf(c?.color).id;
+  art.setColorway(c?.color ?? null);
+  swatchesEl.hidden = !c;
+  swatchesEl.replaceChildren(
+    ...COLORWAYS.map((colorway) => {
+      const swatch = document.createElement("button");
+      swatch.type = "button";
+      swatch.className = "swatch" + (colorway.id === active ? " active" : "");
+      swatch.style.setProperty("--swatch", colorway.shell);
+      swatch.title = colorway.name;
+      swatch.setAttribute("role", "radio");
+      swatch.setAttribute("aria-label", colorway.name);
+      swatch.setAttribute("aria-checked", String(colorway.id === active));
+      swatch.addEventListener("click", () => {
+        const current = controllers.find((x) => x.id === selected);
+        if (current) current.color = colorway.id;
+        call("set_controller_color", { color: colorway.id });
+        renderColor();
+      });
+      return swatch;
+    }),
+  );
+}
 const resetLive = () => showState({ lx: 128, ly: 128, rx: 128, ry: 128, l2: 0, r2: 0, buttons: 0 });
 
 listen<StateEvent>("controller-state", ({ payload }) => {
@@ -344,8 +378,6 @@ $("rumble-pulse").addEventListener("click", () => {
   invoke("set_rumble", { id, left: 255, right: 255 });
   setTimeout(() => invoke("set_rumble", { id, left: 0, right: 0 }), 1000);
 });
-
-$("overlay-preview").addEventListener("click", () => call("preview_overlay"));
 
 // Virtual controller
 const padToggle = $<HTMLInputElement>("virtual-pad");

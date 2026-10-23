@@ -9,6 +9,7 @@
 
 import svgSource from "./assets/dualsense.svg?raw";
 import "./art.css";
+import { colorwayOf } from "./colorways";
 
 /** What the drawing shows: the same fields as the state events. */
 export interface ArtState {
@@ -116,6 +117,20 @@ export function createControllerArt() {
 
   return {
     el,
+
+    /**
+     * Draws the controller in a colourway (an identifier; the default one if unknown or `null`). Each
+     * part reads a CSS variable (see art.css); a part the colourway does not set keeps Sony's colour.
+     */
+    setColorway(id: string | null | undefined) {
+      const colorway = colorwayOf(id);
+      const set = (name: string, value: string | undefined) =>
+        value ? el.style.setProperty(name, value) : el.style.removeProperty(name);
+      set("--pad-shell", colorway.shell);
+      set("--pad-buttons", colorway.buttons);
+      set("--pad-touchpad", colorway.touchpad);
+      set("--pad-plate", colorway.plate);
+    },
 
     update(s: ArtState) {
       for (const { mask, nodes } of parts) {

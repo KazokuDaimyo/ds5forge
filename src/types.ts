@@ -30,6 +30,7 @@ export type AppAction =
   | { type: "toggle_virtual_pad" }
   | { type: "power_off" }
   | { type: "show_overlay" }
+  | { type: "open_menu" }
   | { type: "toggle_motion" }
   | { type: "message"; text: string }
   | { type: "lightbar"; r: number; g: number; b: number }
@@ -161,6 +162,8 @@ export interface ControllerInfo {
   profile: Profile;
   /** The controller's default profile. */
   preset: string;
+  /** The colour of the controller (identifier of a colourway), if the user chose one. */
+  color: string | null;
   /** The game profile chosen by hand on this controller, if any. */
   manual: string | null;
   /** The profile in force: the game in the foreground's, else the one chosen by hand, else `preset`. */

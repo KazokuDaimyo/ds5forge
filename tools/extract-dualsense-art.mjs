@@ -66,8 +66,9 @@ for (const box of [[1866, 484, 1878, 500], [1872, 494, 1885, 500], [1854, 493, 1
 }
 
 // Shoulders: a single dark piece per side (background of L1 and L2).
-tag(find(NAVY, [1689, 314, 1756, 379]), {});
-tag(find(NAVY, [1981, 314, 2048, 379]), {});
+const shoulders = { l2: find(NAVY, [1689, 314, 1756, 379]), r2: find(NAVY, [1981, 314, 2048, 379]) };
+tag(shoulders.l2, {});
+tag(shoulders.r2, {});
 
 
 
@@ -111,11 +112,15 @@ const SHAPES = {
 const ellipseOf = ([x0, y0, x1, y1]) => ({ cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 });
 
 const HAIRLINE = 0.24; // ordinary hairline of the drawing, set against the outside of the shape
+// Every line of the drawing is drawn BOLDNESS times thicker than in Sony's artwork (strokes here, the lines drawn
+// as filled shapes in art.css), so that they stay readable at the size of the interface.
+const BOLDNESS = 1;
+const line = (w) => r2(w * BOLDNESS);
 const SILHOUETTE = 0.48; // silhouette stroke (edge of the plate, bottom of the cap), set against the outside
 // The carve-out removes everything the cap has around it. Its margin comfortably exceeds the silhouette stroke:
 // at the scale of the application (1.45 px per unit), the anti-aliasing of the carve-out edge would otherwise
 // leave a pale arc where the cap used to be.
-const CARVE = SILHOUETTE + 0.8;
+const CARVE = SILHOUETTE * BOLDNESS + 0.8;
 
 const plate = find(NAVY, [1690, 438, 2046, 567]); // the dark plate around the sticks
 const STICKS = {
@@ -190,7 +195,7 @@ const stickLines = [compound, find(LINE_GREY, [1642, 313, 2095, 568], 1)];
 // ---------------------------------------------------------------------------------------------
 
 const path = (a, d, extra = "") => `<path${attrs(a)} d="${d}"${extra}/>`;
-const asPath = (p) => path(p.attrs ?? {}, p.d, ` fill="${p.fill}"${p.kind.includes("stroke") ? ` stroke="${p.stroke}" stroke-width="${p.lw}"` : ""}`);
+const asPath = (p) => path(p.attrs ?? {}, p.d, ` fill="${p.fill}"${p.kind.includes("stroke") ? ` stroke="${p.stroke}" stroke-width="${line(p.lw)}"` : ""}`);
 
 /**
  * The hinge of a trigger: the line along its lower edge, where it goes under L1. A trigger is fixed by
@@ -234,32 +239,32 @@ let defs = "";
 let caps = ""; // triggers: drawn under the rest, which is cut out in their place
 let body = "";
 const wallCarves = []; // cut-outs of the fixed drawing: the top of the side walls of the triggers (see cap)
-/** A trigger (L2 or R2): background, outline, side wall, fill according to the pressure, click highlight, label. */
+/**
+ * A trigger (L2 or R2). It carries a copy of Sony's own drawing: the fixed drawing (id art) is reused there, cropped to
+ * the shape of the trigger plus a margin of one unit (the area carved out of the fixed drawing, see the mask cut) and
+ * to the top of its side wall. At rest the result is Sony's drawing, line for line, with no seam; pressed, the
+ * trigger folds with its outline, its silhouette and its wall. The copy is slightly larger than the cut-out so
+ * that the two overlap. On top: the fill according to the pressure, the click highlight and the label.
+ *
+ * The side wall (a thin band, located by `wall`) runs along the trigger: above the hinge it is part of the trigger
+ * and has to fold with it, otherwise its top would stay upright at the old position; the rest belongs to L1.
+ */
 function cap(side, bit, trigger, labels, wall) {
   const d = SHAPES.l2[side];
   const hinge = hingeOf(d);
-  // Its side face (a thin band, located by `wall`) runs along the trigger: above the hinge it is part of the trigger
-  // and has to fold with it, otherwise its top would stay upright at the old position; the rest belongs to L1. So this top
-  // is cut out of the fixed drawing and redrawn inside the trigger: the fixed drawing itself (id art) is reused there,
-  // cropped to the area of the band and stripped of the shape of the trigger. The band only looks like a hairline
-  // once combined with its neighbours, and the area also contains the background of the shoulder: reusing the
-  // drawing as it is guarantees a rest state identical to Sony's. The copy goes down one unit below the cut so
-  // that the two overlap.
   const [wx0, wy0, wx1] = wall.bbox;
   const cutY = hinge.y + hinge.slope * ((wx0 + wx1) / 2 - hinge.x);
   const box = (bottom) => `x="${r2(wx0 - 1.5)}" y="${r2(wy0 - 2)}" width="${r2(wx1 - wx0 + 3)}" height="${r2(bottom - (wy0 - 2))}"`;
-  defs += `<clipPath id="wall-${trigger}-__ID__"><rect ${box(cutY + 1)}/></clipPath>`;
-  // The shape of the trigger is removed from the copy (mask region reduced to the area: that is all there is to crop).
-  defs += `<mask id="hole-${trigger}-__ID__" maskUnits="userSpaceOnUse" ${box(cutY + 1)}><rect ${box(cutY + 1)} fill="#fff"/><path d="${d}" fill="#000" stroke="#000" stroke-width="2"/></mask>`;
   wallCarves.push(`<rect ${box(cutY)} fill="#000"/>`);
+  const [sx0, sy0, sx1, sy1] = shoulders[trigger].bbox;
+  defs +=
+    `<mask id="part-${trigger}-__ID__" maskUnits="userSpaceOnUse" x="${r2(sx0 - 3)}" y="${r2(sy0 - 3)}" width="${r2(sx1 - sx0 + 6)}" height="${r2(sy1 - sy0 + 6)}">` +
+    `<path d="${d}" fill="#fff" stroke="#fff" stroke-width="2.3" stroke-linejoin="round"/><rect ${box(cutY + 1)} fill="#fff"/></mask>`;
   caps +=
     `<g class="trigger-cap" data-sink="${trigger}" data-hinge="${r2(hinge.x)} ${r2(hinge.y)} ${r2(hinge.slope)}">` +
-    // The dark halo extends past the grey stroke: it fills the gap with the carve-out of the fixed drawing.
-    `<path d="${d}" fill="${NAVY}" stroke="${NAVY}" stroke-width="2.2" stroke-linejoin="round"/>` +
-    `<path d="${d}" fill="none" stroke="${LINE_GREY}" stroke-width="0.9" stroke-linejoin="round"/>` +
-    `<path class="trigger-fill" data-fill="${trigger}" d="${d}"/>` +
-    `<path class="hl" data-part="${bit}" d="${d}"/>` +
-    `<g clip-path="url(#wall-${trigger}-__ID__)"><g mask="url(#hole-${trigger}-__ID__)"><use href="#art-__ID__"/></g></g>` +
+    `<g mask="url(#part-${trigger}-__ID__)"><use href="#art-__ID__"/></g>` +
+    `<path class="trigger-fill" opacity="0" data-fill="${trigger}" d="${d}"/>` +
+    `<path class="hl" opacity="0" data-part="${bit}" d="${d}"/>` +
     labels.map(asPath).join("") +
     `</g>`;
 }
@@ -281,21 +286,21 @@ for (const side of ["l", "r"]) {
   const clipped = `clip-path="url(#carve-${side}-__ID__)" fill="none" stroke="${LINE_GREY}"`;
   // The silhouette stroke is set against the outside of the edge: it is drawn twice as wide, and the plate
   // (drawn on top) hides its inner half.
-  rim += `<path ${clipped} stroke-width="${SILHOUETTE * 2}" d="${plateShape.edge[side]}"/>`;
-  wells += `<g ${clipped} stroke-width="${HAIRLINE}">${rings.map((e) => ell(...e)).join("")}</g>`;
+  rim += `<path ${clipped} stroke-width="${line(SILHOUETTE * 2)}" d="${plateShape.edge[side]}"/>`;
+  wells += `<g ${clipped} stroke-width="${line(HAIRLINE)}">${rings.map((e) => ell(...e)).join("")}</g>`;
 
   // The bottom of the cap has a silhouette stroke where it sticks out of the plate (see the plate-__ID__ mask).
-  const halo = ` fill="none" stroke="${LINE_GREY}" stroke-width="${SILHOUETTE}"`;
+  const halo = ` fill="none" stroke="${LINE_GREY}" stroke-width="${line(SILHOUETTE)}"`;
   halos += `<g class="stick" data-stick="${side}">${ell(cx, cy, rx + SILHOUETTE / 2, ry + SILHOUETTE / 2, halo)}</g>`;
   // The background and hairline of the cap are opaque: they hide the rings it covers.
   // The dish is slightly higher than the bottom of the cap: it moves more (data-dish).
-  const outline = ` fill="${NAVY}" stroke="${LINE_GREY}" stroke-width="${HAIRLINE}"`;
+  const outline = ` class="dark" fill="${NAVY}" stroke="${LINE_GREY}" stroke-width="${line(HAIRLINE)}"`;
   sticks +=
     `<g class="stick" data-stick="${side}">` +
     ell(cx, cy, rx + HAIRLINE / 2, ry + HAIRLINE / 2, outline) +
     `<g class="dish" data-dish="${side}">${asPath(dish)}</g>` +
     // Stick click (L3 / R3): the cap lights up
-    `<path class="hl" data-part="${side === "l" ? 10 : 11}" d="${cap.d}"/>` +
+    `<path class="hl" opacity="0" data-part="${side === "l" ? 10 : 11}" d="${cap.d}"/>` +
     `</g>`;
 }
 
@@ -304,11 +309,14 @@ for (const p of view) {
   // The body and the plate are redrawn without the detour around the caps; the silhouette stroke of the
   // edge of the plate goes between the two (the plate hides its inner half), the complete rings just above.
   if (p === bodyPiece) {
-    body += `<path d="${bodyShape.d}" fill="${p.fill}"/>${rim}`;
+    // The `shell` class marks the colour of the controller, which the interface can change.
+    // The touchpad belongs to the same path as the shell, but it keeps its colour when the shell changes: it is
+    // drawn again, in the original colour, right above it.
+    body += `<path class="shell" d="${bodyShape.d}" fill="${p.fill}"/><path class="touchpad-face" d="${SHAPES.touchpad}" fill="${p.fill}"/>${rim}`;
     continue;
   }
   if (p === plate) {
-    body += `<path d="${plateD}" fill="${p.fill}"/>${wells}`;
+    body += `<path class="dark" d="${plateD}" fill="${p.fill}"/>${wells}`;
     continue;
   }
   if (stickLines.includes(p)) {
@@ -329,10 +337,12 @@ for (const p of view) {
 
   const rule = p.kind.startsWith("eo") ? ' fill-rule="evenodd"' : "";
   if (p.kind === "stroke") {
-    body += `<path${attrs(p.attrs)} d="${p.d}" fill="none" stroke="${p.stroke}" stroke-width="${p.lw}"/>`;
+    body += `<path${attrs(p.attrs)} d="${p.d}" fill="none" stroke="${p.stroke}" stroke-width="${line(p.lw)}"/>`;
   } else {
-    const strokeAttrs = p.kind.includes("stroke") ? ` stroke="${p.stroke}" stroke-width="${p.lw}"` : "";
-    body += `<path${attrs(p.attrs)} d="${p.d}" fill="${p.fill}"${rule}${strokeAttrs}/>`;
+    const strokeAttrs = p.kind.includes("stroke") ? ` stroke="${p.stroke}" stroke-width="${line(p.lw)}"` : "";
+    // The dark parts (plate, triggers, stick caps) can take another colour: some editions have them white.
+    const dark = p.fill === NAVY ? ' class="dark"' : "";
+    body += `<path${dark}${attrs(p.attrs)} d="${p.d}" fill="${p.fill}"${rule}${strokeAttrs}/>`;
   }
 }
 
@@ -357,10 +367,10 @@ function buttonShape(box, tolerance = 2.5) {
 // Highlights added on top, with the exact shape of the drawing when it has one.
 const overlay = (bit, shape) =>
   Array.isArray(shape)
-    ? `<g class="hl" data-part="${bit}">${shape.map((d) => `<path d="${d}"/>`).join("")}</g>`
+    ? `<g class="hl" opacity="0" data-part="${bit}">${shape.map((d) => `<path d="${d}"/>`).join("")}</g>`
     : shape.startsWith("M")
-      ? `<path class="hl" data-part="${bit}" d="${shape}"/>`
-      : `<${shape} class="hl" data-part="${bit}"/>`;
+      ? `<path class="hl" opacity="0" data-part="${bit}" d="${shape}"/>`
+      : `<${shape} class="hl" opacity="0" data-part="${bit}"/>`;
 body +=
   overlay(13, SHAPES.touchpad) +
   overlay(4, SHAPES.l1.l) +
@@ -385,7 +395,7 @@ const carved = ["l", "r"].map((side) => {
 });
 defs +=
   `<mask id="cut-__ID__" ${region}>${whole}` +
-  [SHAPES.l2.l, SHAPES.l2.r].map((d) => `<path d="${d}" fill="#000" stroke="#000" stroke-width="2"/>`).join("") +
+  [SHAPES.l2.l, SHAPES.l2.r].map((d) => `<path d="${d}" fill="#000" stroke="#000" stroke-width="2" stroke-linejoin="round"/>`).join("") +
   wallCarves.join("") +
   `</mask>` +
   `<mask id="sticks-__ID__" ${region}>${whole}${carved.join("")}</mask>` +

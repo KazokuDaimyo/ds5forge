@@ -12,6 +12,19 @@
   filter: drop-shadow(0 16px 20px rgba(0, 0, 0, 0.32));
 }
 
+/* The colours of the controller. Each part reads a variable that the interface sets for the colourway
+   (see colorways.ts); without one, the colour of Sony's artwork is used. */
+.art .shell { fill: var(--pad-shell, #e8ecef); }
+.art .touchpad-face { fill: var(--pad-touchpad, var(--pad-shell, #e8ecef)); }
+.art .btn-fill { fill: var(--pad-buttons, #dee2e5); }
+/* The dark parts of the artwork: central plate, triggers and stick caps */
+.art .dark { fill: var(--pad-plate, #111b25); }
+
+/* Thicker lines: the outlines Sony drew as filled shapes get a stroke of their own colour (the strokes of the
+   drawing are thickened in the generator, BOLDNESS). */
+.art [fill="#787878"]:not([stroke]) { stroke: #787878; stroke-width: 0.15; stroke-linejoin: round; }
+.art .btn-glyph.on { stroke: #ffffff; }
+
 /* Face buttons and D-pad: the background and the symbol light up together */
 .art .btn-fill,
 .art .btn-glyph,

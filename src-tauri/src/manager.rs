@@ -3,7 +3,7 @@
 //! Each controller is identified by its MAC address. Its profile (name, colour, triggers…) is
 //! saved to disk and reapplied on every connection.
 
-use crate::bindings::{rules_from_shortcuts, AnalogBinding, Rule};
+use crate::bindings::{rules_from_shortcuts, with_menu_rule, AnalogBinding, Rule};
 use crate::bluetooth;
 use crate::controller::{self, Charge, Command, DeviceCtx};
 use crate::diagnostics::{ControllerDiag, Log};
@@ -154,15 +154,13 @@ pub struct Settings {
     /// Interface language chosen by the user. `None`: not chosen yet, the interface picks one
     /// from the system language.
     pub language: Option<Lang>,
-    /// Holding the PS button opens the controller menu (see `menu`).
-    pub controller_menu: bool,
     /// The open menu takes the focus, so that a game in the background stops reacting to the controller.
     pub menu_focus: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { hidhide_auto: false, low_battery_alert: true, haptic_feedback: true, language: None, controller_menu: true, menu_focus: true }
+        Self { hidhide_auto: false, low_battery_alert: true, haptic_feedback: true, language: None, menu_focus: true }
     }
 }
 
@@ -189,6 +187,8 @@ pub struct OverlayController {
     pub xbox_mode: bool,
     /// The controller whose shortcut triggered the overlay.
     pub source: bool,
+    /// The colour of the controller, by identifier, to draw it in its colour.
+    pub pad_color: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -213,6 +213,8 @@ pub struct ControllerInfo {
     pub profile: Profile,
     /// The controller's default profile.
     pub preset: String,
+    /// The colour of the controller, by identifier, if the user chose one.
+    pub color: Option<String>,
     /// The game profile chosen by hand on this controller, if any.
     pub manual: Option<String>,
     /// The profile in force: the game in the foreground's, else the one chosen by hand, else `preset`.
@@ -241,10 +243,14 @@ struct ControllerEntry {
     /// "Automatic" is chosen in the menu.
     #[serde(skip)]
     chosen: Option<String>,
+    /// The colour of the physical controller, by identifier (see `src/colorways.ts`): it only decides
+    /// how the controller is drawn. It belongs to the controller, not to a profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
 }
 
-/// The content of `profiles.json` (format 2). Format 1 was a map from controller identifier to
-/// profile; it is converted when read.
+/// The content of `profiles.json`. Format 1 was a map from controller identifier to profile; it is
+/// converted when read, and older formats are brought up to date (see `STORE_VERSION`).
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
 struct Store {
@@ -255,7 +261,8 @@ struct Store {
     games: Vec<GameRule>,
 }
 
-const STORE_VERSION: u32 = 2;
+/// Format 3 adds the rule that opens the controller menu to the profiles saved before it existed.
+const STORE_VERSION: u32 = 3;
 
 struct Active {
     tx: Sender<Command>,
@@ -452,6 +459,7 @@ impl Controllers {
                     bluetooth: inner.active.get(id).is_some_and(|a| a.bluetooth),
                     profile: profile.with_rules(),
                     preset: entry.preset.clone(),
+                    color: entry.color.clone(),
                     manual: entry.manual.clone(),
                     effective_preset: inner.effective_preset(id).unwrap_or_default().to_string(),
                 })
@@ -546,6 +554,27 @@ impl Controllers {
         true
     }
 
+    /// Chooses the colour a controller is drawn in (an identifier; `None` goes back to the default).
+    /// Returns `false` if the controller is unknown.
+    pub fn set_controller_color(&self, id: &str, color: Option<String>) -> bool {
+        // Only a plain identifier is kept: it comes from the interface and ends up in the saved file.
+        let color = color
+            .map(|c| c.trim().to_ascii_lowercase())
+            .filter(|c| !c.is_empty() && c.len() <= 32 && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-'));
+        {
+            let mut inner = self.lock();
+            let Some(entry) = inner.controllers.get_mut(id) else {
+                return false;
+            };
+            if entry.color != color {
+                entry.color = color;
+                inner.dirty = true;
+            }
+        }
+        self.notify();
+        true
+    }
+
     /// Sends a command to a connected controller (no effect if it is absent).
     pub fn send(&self, id: &str, cmd: Command) {
         if let Some(active) = self.lock().active.get(id) {
@@ -621,6 +650,7 @@ impl Controllers {
                         charge: active.charge,
                         xbox_mode: profile.virtual_pad,
                         source: id == source,
+                        pad_color: inner.controllers.get(id).and_then(|e| e.color.clone()),
                     }
                 })
                 .collect();
@@ -700,23 +730,10 @@ impl Controllers {
         }
     }
 
-    /// Whether holding PS opens the controller menu.
-    pub fn controller_menu_enabled(&self) -> bool {
-        self.lock().settings.controller_menu
-    }
-
     pub fn set_menu_focus(&self, enabled: bool) {
         let mut inner = self.lock();
         if inner.settings.menu_focus != enabled {
             inner.settings.menu_focus = enabled;
-            inner.settings_dirty = true;
-        }
-    }
-
-    pub fn set_controller_menu(&self, enabled: bool) {
-        let mut inner = self.lock();
-        if inner.settings.controller_menu != enabled {
-            inner.settings.controller_menu = enabled;
             inner.settings_dirty = true;
         }
     }
@@ -1193,7 +1210,7 @@ fn load_store(path: &std::path::Path, log: &Log) -> (Store, bool) {
         Ok(value) => value,
         Err(e) => return unreadable(e.to_string()),
     };
-    let (mut store, migrated) = if value.get("version").is_some() {
+    let (mut store, mut migrated) = if value.get("version").is_some() {
         match serde_json::from_value::<Store>(value) {
             Ok(store) => (store, false),
             Err(e) => return unreadable(e.to_string()),
@@ -1211,6 +1228,15 @@ fn load_store(path: &std::path::Path, log: &Log) -> (Store, bool) {
             Err(e) => return unreadable(e.to_string()),
         }
     };
+    // Holding PS used to be built in; it is now a rule like the others. The profiles saved before get
+    // it once: deleting it afterwards is final, since the file is then in the newest format.
+    if store.version < 3 {
+        for preset in store.presets.values_mut() {
+            let rules = preset.rules.take().unwrap_or_else(|| rules_from_shortcuts(&preset.shortcuts));
+            preset.rules = Some(with_menu_rule(rules));
+        }
+        migrated = true;
+    }
     normalise(&mut store);
     (store, migrated)
 }
@@ -1218,7 +1244,8 @@ fn load_store(path: &std::path::Path, log: &Log) -> (Store, bool) {
 /// Format 1 kept a complete profile per controller. Each one becomes a profile named after its
 /// controller, which that controller keeps using: nothing changes for the user.
 fn migrate_v1(old: BTreeMap<String, Profile>) -> Store {
-    let mut store = Store { version: STORE_VERSION, ..Store::default() };
+    // Still "format 2" until the later migrations have been applied by `load_store`.
+    let mut store = Store { version: 2, ..Store::default() };
     for (id, profile) in old {
         let name = if profile.name.trim().is_empty() { id.clone() } else { profile.name.clone() };
         let preset = unique_name(&name, &store.presets);
@@ -2312,15 +2339,15 @@ mod tests {
     }
 
     #[test]
-    fn the_controller_menu_is_on_by_default_and_can_be_turned_off_and_saved() {
+    fn the_menu_focus_setting_is_on_by_default_and_is_saved() {
         let file = temp_file("menu-setting");
         let c = Controllers::new(Events::none(), Some(file.clone()));
-        assert!(c.controller_menu_enabled());
-        c.set_controller_menu(false);
+        assert!(c.settings().menu_focus);
+        c.set_menu_focus(false);
         c.flush();
-        assert!(!Controllers::new(Events::none(), Some(file.clone())).controller_menu_enabled());
-        let old: Settings = serde_json::from_str(r#"{"hidhide_auto":true}"#).unwrap();
-        assert!(old.controller_menu, "old settings files get the menu");
+        assert!(!Controllers::new(Events::none(), Some(file.clone())).settings().menu_focus);
+        let old: Settings = serde_json::from_str(r#"{"hidhide_auto":true,"controller_menu":false}"#).unwrap();
+        assert!(old.menu_focus, "old settings files keep working, and the removed option is ignored");
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
     }
 
@@ -2368,6 +2395,64 @@ mod tests {
         assert_eq!(log[0].1["menu"]["cursor"], 0);
         assert!(log[0].1["message"].is_null());
         assert_eq!(log[1].0, "overlay-hide");
+    }
+
+    // --- Controller colour ------------------------------------------------------------------
+
+    #[test]
+    fn a_controller_has_no_colour_until_one_is_chosen() {
+        let c = Controllers::new(Events::none(), None);
+        let _a = connect(&c, "AA");
+        assert_eq!(c.list()[0].color, None);
+    }
+
+    #[test]
+    fn the_colour_belongs_to_the_controller_and_not_to_its_profile() {
+        let (c, _rx) = with_racing_profile();
+        assert!(c.set_controller_color("AA", Some("cosmic-red".into())));
+        c.set_controller_preset("AA", "Racing").unwrap();
+        assert_eq!(c.list()[0].color.as_deref(), Some("cosmic-red"), "still there on a game profile");
+        c.set_auto_preset(Some("Racing".into()));
+        assert_eq!(c.list()[0].color.as_deref(), Some("cosmic-red"));
+    }
+
+    #[test]
+    fn the_colour_survives_a_restart_and_can_be_cleared() {
+        let file = temp_file("colour");
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let _a = connect(&c, "AA");
+        c.set_controller_color("AA", Some("nova-pink".into()));
+        c.flush();
+        let reloaded = Controllers::new(Events::none(), Some(file.clone()));
+        assert_eq!(reloaded.list()[0].color.as_deref(), Some("nova-pink"));
+        reloaded.set_controller_color("AA", None);
+        reloaded.flush();
+        assert_eq!(Controllers::new(Events::none(), Some(file.clone())).list()[0].color, None);
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn only_a_plain_identifier_is_kept_as_a_colour() {
+        let c = Controllers::new(Events::none(), None);
+        let _a = connect(&c, "AA");
+        c.set_controller_color("AA", Some("  Midnight-Black ".into()));
+        assert_eq!(c.list()[0].color.as_deref(), Some("midnight-black"), "trimmed and lowercased");
+        for bad in ["", "   ", "red;drop", "../x", &"x".repeat(33)] {
+            c.set_controller_color("AA", Some(bad.into()));
+            assert_eq!(c.list()[0].color, None, "{bad:?} is not an identifier");
+        }
+        assert!(!c.set_controller_color("ZZ", Some("white".into())), "an unknown controller is reported");
+    }
+
+    #[test]
+    fn the_overlay_carries_the_colour_of_the_controller() {
+        let (events, log) = capturing_events();
+        let c = Controllers::new(events, None);
+        let _a = connect(&c, "AA");
+        c.set_controller_color("AA", Some("cobalt-blue".into()));
+        log.lock().unwrap().clear();
+        c.show_overlay("AA", None);
+        assert_eq!(log.lock().unwrap()[0].1["controllers"][0]["pad_color"], "cobalt-blue");
     }
 
     #[test]
@@ -2591,6 +2676,54 @@ mod tests {
         let reloaded = Controllers::new(Events::none(), Some(file.clone()));
         assert_eq!(reloaded.list()[1].profile.lightbar, [4, 5, 6]);
         let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn profiles_saved_before_the_menu_get_the_menu_rule_once_and_deleting_it_is_final() {
+        let file = temp_file("menu-rule");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let overlay_rule = r#"{"inputs":["ps"],"gesture":"press","steps":[{"type":"app","action":{"type":"show_overlay"}}]}"#;
+        std::fs::write(
+            &file,
+            format!(
+                r#"{{"version":2,"controllers":{{"AA":{{"name":"Pad","preset":"Pad"}}}},"presets":{{"Pad":{{"rules":[{overlay_rule}]}}}},"games":[]}}"#
+            ),
+        )
+        .unwrap();
+
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let rules = c.live_config("AA").rules;
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].gesture, crate::bindings::Gesture::Tap, "the overlay rule no longer fires before the menu");
+        assert_eq!(rules[1], crate::bindings::menu_rule());
+        c.flush();
+        assert!(std::fs::read_to_string(&file).unwrap().contains(r#""version": 3"#));
+
+        // The user deletes the menu rule: it must stay deleted.
+        c.edit("AA", |p| p.rules = Some(vec![rules[0].clone()]));
+        c.flush();
+        let reloaded = Controllers::new(Events::none(), Some(file.clone()));
+        assert_eq!(reloaded.live_config("AA").rules.len(), 1);
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn profiles_that_never_had_rules_get_the_default_ones_with_the_menu() {
+        let file = temp_file("menu-rule-legacy");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, r#"{"AA":{"name":"Pad","shortcuts":[{"button":"mute","gesture":"press","action":"toggle_virtual_pad"}]}}"#).unwrap();
+        let c = Controllers::new(Events::none(), Some(file.clone()));
+        let rules = c.live_config("AA").rules;
+        assert_eq!(rules.len(), 2, "the shortcut, then the menu rule");
+        assert_eq!(rules[1], crate::bindings::menu_rule());
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn a_new_controller_has_the_menu_rule_among_its_rules() {
+        let c = Controllers::new(Events::none(), None);
+        let _a = connect(&c, "AA");
+        assert!(c.live_config("AA").rules.contains(&crate::bindings::menu_rule()));
     }
 
     #[test]

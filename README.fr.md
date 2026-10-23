@@ -10,6 +10,8 @@ Un compagnon pour la manette Sony DualSense sous Windows, développé en Rust av
 ## Fonctionnalités
 
 - **Usage natif** : la manette fonctionne comme une DualSense classique, avec des réglages enregistrés par manette. Tout le reste est facultatif.
+- **Couleur de la manette** : l'illustration peut prendre la couleur de votre DualSense (White, Midnight Black, Cosmic
+  Red, Nova Pink…), choisie par manette sous l'image. Les valeurs sont des approximations des couleurs officielles.
 - **Vue en direct** de la manette : boutons, sticks, gâchettes, pavé tactile, batterie et type de connexion.
 - **Gâchettes adaptatives** (résistance, clic d'arme, vibration), **vibration**, **lightbar** (couleur fixe,
   selon la batterie ou selon le mode) et **LED joueur**.
@@ -21,11 +23,12 @@ Un compagnon pour la manette Sony DualSense sous Windows, développé en Rust av
 - **Profils de jeu** : vos réglages habituels sont le profil par défaut ; un profil de jeu a ses propres réglages
   et s'applique automatiquement tant que ce jeu est au premier plan (seul le nom du programme au premier plan est
   lu ; rien n'est injecté dans les jeux).
-- **Menu de la manette** : maintenir le bouton PS ouvre un menu dans l'overlay, piloté avec la manette elle-même
-  (croix directionnelle et Croix) : passer du mode natif au mode Xbox 360, changer de profil, et voir la batterie
-  de la manette. Tant qu'il est ouvert, le jeu et les règles ne reçoivent rien, et le menu prend le focus pour que
-  la plupart des jeux ne réagissent plus à la manette (désactivable dans les réglages). L'overlay ne montre
-  jamais que la manette qui l'a demandé.
+- **Menu de la manette** : un menu dans l'overlay, piloté avec la manette elle-même (croix directionnelle et
+  Croix) : passer du mode natif au mode Xbox 360, changer de profil, et voir la batterie de la manette. Il
+  s'ouvre avec l'action « Ouvrir le menu de la manette » d'une règle ; les règles par défaut l'ouvrent en
+  maintenant le bouton PS, et supprimer cette règle retire le raccourci. Tant que le menu est ouvert, le jeu et les
+  règles ne reçoivent rien, et le menu prend le focus pour que la plupart des jeux ne réagissent plus à la manette
+  (désactivable dans les réglages). L'overlay ne montre jamais que la manette qui l'a demandé.
 - **Liaisons analogiques** : un stick peut piloter la souris, la molette ou des touches.
 - **Gyroscope et pavé tactile** en souris ou en stick droit.
 - **Overlay** avec la batterie et le mode de chaque manette, **icône dans la zone de notification**,

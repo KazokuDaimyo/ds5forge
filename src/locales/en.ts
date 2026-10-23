@@ -44,6 +44,7 @@ export const en = {
 
   // --- Overview -------------------------------------------------------------------------------
   "overview.hint": "Buttons, sticks and triggers react live.",
+  "pad.color": "Controller colour",
   "pad.title": "Virtual controller",
   "pad.switch": "Emulate an Xbox 360 controller",
   "pad.hint": "Off: the controller is used natively, as a DualSense. On: games see an Xbox 360 controller; HidHide, enabled in the settings, avoids doubled inputs.",
@@ -76,7 +77,6 @@ export const en = {
   "rules.intro":
     "<b>When</b> an input (a button, a combination of buttons or a stick direction) makes a gesture, <b>then</b> run a sequence of steps (keyboard key, click, pause, application action, Xbox button in Xbox 360 mode…). In Xbox 360 mode, an input that has a rule is no longer passed to the virtual controller unless “Also keep the original input” is checked.",
   "rules.addRule": "Add a rule",
-  "rules.preview": "Test the overlay",
   "rules.deleteAll": "Delete all",
   "rules.layersHint":
     "<b>Layers</b>: a rule can belong to a layer (for example “Shift”). It then only acts while the layer is active, and replaces base rules on the same inputs. A “While held” rule with the “Change layer” action turns a button into a Shift key.",
@@ -132,6 +132,7 @@ export const en = {
   "step.app": "Application action",
   "action.toggle_virtual_pad": "Switch native / Xbox 360",
   "action.show_overlay": "Show the overlay",
+  "action.open_menu": "Open the controller menu",
   "action.message": "Show a message",
   "action.layer": "Change layer",
   "action.lightbar": "Change the light bar colour",
@@ -285,7 +286,6 @@ export const en = {
   "settings.autostart": "Launch at Windows startup",
   "settings.lowBattery": "Low battery alert",
   "settings.haptics": "Confirmation vibration",
-  "settings.menu": "Hold the PS button to open the controller menu",
   "settings.menuFocus": "The menu takes the focus, so that games stop reacting to the controller",
   "settings.hint":
     "Closing the window minimizes the application to the notification area: virtual controllers keep working.",

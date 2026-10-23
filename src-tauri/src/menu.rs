@@ -1,5 +1,5 @@
-//! The controller menu: opened by holding the PS button, driven with the controller itself, shown
-//! in the overlay. It switches between native and Xbox 360 mode and between profiles, and shows the
+//! The controller menu: opened by the "open the controller menu" action (by default, a rule that holds
+//! PS), driven with the controller itself, shown in the overlay. It switches between native and Xbox 360 mode and between profiles, and shows the
 //! connected controllers with their battery.
 //!
 //! This module is the pure logic (which button does what, when the menu opens and closes); the
@@ -9,8 +9,6 @@ use crate::controller::btn;
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
-/// How long PS must be held to open the menu. Longer than a tap, shorter than a wait.
-pub const HOLD: Duration = Duration::from_millis(600);
 /// The menu closes by itself after this long without any input.
 pub const IDLE_CLOSE: Duration = Duration::from_secs(10);
 
@@ -62,28 +60,6 @@ pub fn keys(previous: u32, now: u32) -> Vec<Key> {
         }
     }
     keys
-}
-
-/// Detects the long press on PS: true once per press, when it has been held for `HOLD`.
-#[derive(Debug, Default)]
-pub struct HoldDetector {
-    since: Option<Instant>,
-    fired: bool,
-}
-
-impl HoldDetector {
-    pub fn update(&mut self, down: bool, now: Instant) -> bool {
-        if !down {
-            *self = Self::default();
-            return false;
-        }
-        let since = *self.since.get_or_insert(now);
-        if !self.fired && now.duration_since(since) >= HOLD {
-            self.fired = true;
-            return true;
-        }
-        false
-    }
 }
 
 /// An open menu.
@@ -216,29 +192,6 @@ mod tests {
         assert_eq!(keys(btn::CROSS, 0), Vec::<Key>::new(), "a release is not a key");
         assert_eq!(keys(0, btn::CIRCLE), [Key::Back]);
         assert_eq!(keys(0, btn::PS), [Key::Back]);
-    }
-
-    #[test]
-    fn holding_ps_opens_the_menu_once() {
-        let mut hold = HoldDetector::default();
-        let t0 = Instant::now();
-        assert!(!hold.update(true, t0));
-        assert!(!hold.update(true, t0 + MS(300)), "too early");
-        assert!(hold.update(true, t0 + MS(650)));
-        assert!(!hold.update(true, t0 + MS(900)), "once per press");
-        assert!(!hold.update(false, t0 + MS(1000)));
-        assert!(!hold.update(true, t0 + MS(1100)), "a new press starts over");
-        assert!(hold.update(true, t0 + MS(1800)));
-    }
-
-    #[test]
-    fn a_tap_never_opens_the_menu() {
-        let mut hold = HoldDetector::default();
-        let t0 = Instant::now();
-        assert!(!hold.update(true, t0));
-        assert!(!hold.update(true, t0 + MS(200)));
-        assert!(!hold.update(false, t0 + MS(250)));
-        assert!(!hold.update(false, t0 + MS(2000)));
     }
 
     #[test]
